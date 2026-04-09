@@ -1,0 +1,23 @@
+{
+  "name": "braincore",
+  "version": "1.0.0",
+  "description": "Autonomous memory system for AI infrastructure — extracts, preserves, and retrieves operational knowledge from incidents, sessions, and monitoring data",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trentdoney/BrainCore.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "braincore": "bun run src/cli.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5",
+    "zod": "^3.23.0",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

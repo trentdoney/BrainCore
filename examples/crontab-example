@@ -1,0 +1,8 @@
+# BrainCore Crontab Example
+# Add these entries to your crontab: crontab -e
+
+# Nightly pipeline (scan, archive, extract, consolidate, publish) at 2:40 AM
+40 2 * * * /path/to/braincore/cron/nightly.sh
+
+# Optional: Archive current Claude session on exit (add to ~/.claude/hooks/SessionEnd)
+# /path/to/braincore/cron/archive-session.sh

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data directories
+data/
+logs/
+archive/
+backup/
+
+# Build artifacts
+*.bak*
+*.log
+benchmark-results.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
