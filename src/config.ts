@@ -17,7 +17,7 @@ function env(key: string, fallback: string): string {
 export const config = {
   tenant: env("BRAINCORE_TENANT", "default"),
   postgres: {
-    dsn: env("BRAINCORE_POSTGRES_DSN", "postgresql://braincore:braincore@localhost:5432/braincore"),
+    dsn: requiredEnv("BRAINCORE_POSTGRES_DSN"),
   },
   archive: {
     root: env("BRAINCORE_ARCHIVE_ROOT", "./data/archive"),

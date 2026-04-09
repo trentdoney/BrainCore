@@ -18,7 +18,6 @@ BrainCore/
 │   ├── cli.ts           # Main CLI entry point
 │   ├── config.ts        # Pure env-var config (NO hardcoded values)
 │   ├── db.ts            # postgres.js connection
-│   ├── archive/         # Scanner, archiver, replicator
 │   ├── extract/         # Deterministic + semantic extractors
 │   │   ├── deterministic.ts    # Rule-based parsing
 │   │   ├── semantic.ts         # LLM extraction
@@ -34,32 +33,58 @@ BrainCore/
 │   │   ├── pai-parser.ts
 │   │   └── session-parser.ts
 │   ├── consolidate/     # Pattern/playbook compilation
+│   │   ├── patterns.ts
+│   │   ├── playbooks.ts
+│   │   ├── importance.ts
+│   │   └── updater.ts
 │   ├── llm/             # Client with auto-fallback
+│   │   ├── client.ts
+│   │   ├── health.ts
+│   │   └── prompts/
 │   ├── project/         # Archive/merge/fork operations
+│   │   ├── archive.ts
+│   │   ├── merge.ts
+│   │   └── fork.ts
 │   ├── publish/         # Markdown note publisher
+│   │   └── markdown.ts
 │   ├── security/        # Secret scanner
+│   │   └── secret-scanner.ts
 │   └── eval/            # Evaluation harness
+│       ├── runner.ts
+│       ├── gold.ts
+│       ├── metrics.ts
+│       └── types.ts
 ├── mcp/                 # Python — MCP layer (read-only)
 │   ├── memory_models.py # Pydantic models
-│   └── memory_search.py # 4-stream hybrid retrieval with priority boost + tenant filter
+│   ├── memory_search.py # 4-stream hybrid retrieval with priority boost + tenant filter
+│   ├── requirements.txt
+│   └── README.md
 ├── sql/                 # Schema migrations
 │   ├── 001_preserve_schema.sql
 │   ├── 003_seed_entities.sql
 │   ├── 004_seed_projects.example.sql
 │   └── 005_priority_tenant.sql
-├── scripts/             # Python backfill scripts
+├── scripts/             # Python backfill + bulk ops
 │   ├── backfill-embeddings.py
 │   ├── backfill-priority.py
 │   ├── backfill-tenant.py
 │   ├── backfill-temporal.py
 │   ├── retag-projects.py
-│   └── retag-milestones.py
+│   ├── retag-milestones.py
+│   ├── bulk-archive.sh
+│   ├── bulk-extract.sh
+│   ├── bulk-semantic.sh
+│   ├── retrieval-benchmark.py
+│   ├── smoke-test.sh
+│   └── pre-push-gate.sh
 ├── cron/
-│   └── nightly.sh       # Parallel pipeline with flock + DRY_RUN + failure isolation
+│   ├── nightly.sh       # Parallel pipeline with flock + DRY_RUN + failure isolation
+│   └── archive-session.sh
 ├── examples/
 │   ├── docker-compose.yml   # PostgreSQL + pgvector
+│   ├── crontab-example
 │   ├── seed-projects.sql
-│   └── sample-vault/        # 3 fictional incidents for smoke testing
+│   └── sample-vault/        # Fictional incidents for smoke testing
 ├── .env                 # SECRETS — gitignored, 0600 perms, NEVER commit
 ├── .env.example         # Documented template
 ├── README.md            # User-facing docs
@@ -71,10 +96,10 @@ BrainCore/
 
 ## Language Boundary
 
-- **TypeScript (Bun) owns WRITES**: scan, archive, extract, consolidate, publish, project lifecycle
+- **TypeScript (Bun) owns WRITES**: archive, extract, consolidate, publish, project lifecycle
 - **Python owns READS**: MCP tools, retrieval queries (memory_search.py), embeddings
 - **All shared state through PostgreSQL** — no direct inter-process calls
-- **Embeddings via HTTP**: TypeScript calls the FastAPI /embed endpoint, does not load models in Bun
+- **Embeddings via HTTP**: TypeScript calls the FastAPI `/embed` endpoint, does not load models in Bun
 
 ## Key Design Principles
 
@@ -91,42 +116,44 @@ BrainCore/
 
 ## CRITICAL: Sanitization Before Commit
 
-BrainCore is a **public repo**. Before every git push, run these 8 gates. Any match = blocker:
+BrainCore is published as an open-source repo. Before every `git push`, run:
 
 ```bash
-cd /srv/tools/BrainCore && \
-echo "Gate 1 credentials:" && git ls-files | xargs grep -l '4c31f52e\|PGPASSWORD' 2>/dev/null; \
-echo "Gate 2 private IPs:" && git ls-files | xargs grep -l '192\.168\.\|10\.0\.\|172\.1[6-9]\.' 2>/dev/null | grep -v .env.example; \
-echo "Gate 3 chat IDs:" && git ls-files | xargs grep -l '8711262954\|1341790623' 2>/dev/null; \
-echo "Gate 4 personal projects:" && git ls-files | xargs grep -l 'shockfeed\|onlyfans\|brandibaby\|polymarket\|nanoclaw\|DAD_Case\|buddyx' 2>/dev/null; \
-echo "Gate 5 home paths:" && git ls-files | xargs grep -l '/home/minion\|/srv/tools/BrainCore\|/opt/opsvault' 2>/dev/null | grep -v .env.example; \
-echo "Gate 6 hostnames:" && git ls-files | xargs grep -l '\blila\b\|\bminion\b\|\brava\b\|\bblade\b' 2>/dev/null | grep -v .env.example | grep -v README.md; \
-echo "Gate 7 homelab literal:" && git ls-files | xargs grep -l 'homelab' 2>/dev/null | grep -v .env.example; \
-echo "Gate 8 dsn keys:" && git ls-files | xargs grep -l 'postgresql://[^$]' 2>/dev/null | grep -v .env.example
+bash scripts/pre-push-gate.sh
 ```
 
-Expected output: all gates empty.
+The gate checks for any of the following leaking into tracked files:
+
+- **Credentials** — hardcoded passwords, environment-injected secret-holding variable names, and literal secret tokens
+- **Private IPs** — RFC1918 ranges (`192.` private, `10.` private, and `172.16`–`172.31` private ranges)
+- **Chat / operator IDs** — personal messaging IDs baked into code
+- **Personal project names** — downstream projects that depend on BrainCore but are not part of the public distribution
+- **Home paths** — any `/home/<user>` or deploy-specific install paths
+- **Specific hostnames** — the names of the private machines BrainCore was first deployed on
+- **The word "home-lab"** (written without the hyphen) — BrainCore is general AI-infra memory, not scoped to one environment
+- **Inline database connection strings** — any `postgres` URL written into code or docs instead of referenced via the `BRAINCORE_POSTGRES_DSN` environment variable
+
+Any hit blocks the push. `.env.example` is excluded — that file is the documented template and is allowed to contain example placeholder values. Fix any violation at the source rather than adding exceptions to the gate.
 
 ## Common Tasks
 
 ### Adding a new source type
 1. Add enum value to `sql/001_preserve_schema.sql` (`preserve.source_type`)
-2. Apply ALTER TYPE on the database
+2. Apply `ALTER TYPE` on the database
 3. Create parser at `src/extract/<source>-parser.ts`
 4. Wire CLI command in `src/cli.ts`
-5. Update scanner at `src/archive/scanner.ts`
-6. Add step to `cron/nightly.sh`
-7. Test with `DRY_RUN=1 bash cron/nightly.sh`
+5. Add step to `cron/nightly.sh`
+6. Test with `DRY_RUN=1 bash cron/nightly.sh`
 
 ### Adding a new MCP tool
 1. Add SQL query logic to `mcp/memory_search.py` or create a new function
 2. Add Pydantic model to `mcp/memory_models.py`
-3. Add tool registration to the OpsVault MCP server (separate repo/location)
+3. Add tool registration to the MCP server that fronts BrainCore
 4. Add FastAPI endpoint
 
 ### Schema migration
-1. Create `sql/006_<name>.sql` with idempotent patterns (IF NOT EXISTS, DO blocks)
-2. Apply via psql from lila (the only machine with psql)
+1. Create `sql/006_<name>.sql` with idempotent patterns (`IF NOT EXISTS`, `DO` blocks)
+2. Apply via `psql` from a host that can reach the database
 3. Write backfill script in `scripts/backfill-<name>.py`
 4. Update `src/extract/load.ts` to populate new column on insert
 5. Update `mcp/memory_search.py` if retrieval needs to change
@@ -143,7 +170,7 @@ All configuration via env vars. See `.env.example` for full list. Key ones:
 | `BRAINCORE_EMBED_URL` | optional | Embedding service URL |
 | `BRAINCORE_CLAUDE_MODEL` | optional | Fallback LLM model |
 | `BRAINCORE_TELEGRAM_BOT_TOKEN` | optional | Alert notifications |
-| `BRAINCORE_TENANT` | optional | Tenant scope (default: "default") |
+| `BRAINCORE_TENANT` | optional | Tenant scope (default: `"default"`) |
 | `BRAINCORE_KNOWN_DEVICES` | optional | Comma-separated device list for entity patterns |
 
 ## Testing
@@ -153,7 +180,9 @@ All configuration via env vars. See `.env.example` for full list. Key ones:
 DRY_RUN=1 bash cron/nightly.sh
 
 # Run smoke test
-bun src/cli.ts scan
+bash scripts/smoke-test.sh
+
+# Incremental pieces of the pipeline
 bun src/cli.ts extract --pending --skip-semantic
 bun src/cli.ts consolidate --delta
 
@@ -165,6 +194,6 @@ bun src/cli.ts health-check
 ## Known Gotchas
 
 - `extract --telegram`, `extract --grafana`, `consolidate --detect-stale` may not be in all builds — cron isolates failures gracefully
-- Bar chart panels in Grafana need numeric field cast (`::int`) — use bargauge if barchart doesnt render
-- The `mcp/memory_search.py` in this repo is a reference copy — in production it lives alongside the MCP FastAPI server
-- Cron overlap is prevented by flock — if nightly is still running when next cron fires, the second run exits cleanly
+- Bar chart panels in Grafana need numeric field cast (`::int`) — use `bargauge` if `barchart` does not render
+- The `mcp/memory_search.py` in this repo is a reference copy — in production deployments it typically lives alongside the MCP FastAPI server that fronts BrainCore
+- Cron overlap is prevented by `flock` — if nightly is still running when next cron fires, the second run exits cleanly

@@ -350,8 +350,8 @@ export async function parseTelegramChat(
 function extractDeviceRefs(text: string): string[] {
   const devices: string[] = [];
   const seen = new Set<string>();
-  const devices = (process.env.BRAINCORE_KNOWN_DEVICES || "server-a,server-b,workstation").split(",");
-  const pattern = new RegExp("\\b(" + devices.join("|") + ")\\b", "gi");
+  const knownDevices = (process.env.BRAINCORE_KNOWN_DEVICES || "server-a,server-b,workstation").split(",");
+  const pattern = new RegExp("\\b(" + knownDevices.join("|") + ")\\b", "gi");
   let match;
   while ((match = pattern.exec(text)) !== null) {
     const name = match[1].toLowerCase().replace(/\s+/g, "_");

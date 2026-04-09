@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Tag milestone facts based on keywords and compute importance scores."""
+import os
 import psycopg
 
-import os
-DSN = os.environ.get("BRAINCORE_POSTGRES_DSN", "postgresql://braincore:braincore@localhost:5432/braincore")
+DSN = os.environ.get("BRAINCORE_POSTGRES_DSN")
+if not DSN:
+    raise SystemExit("BRAINCORE_POSTGRES_DSN is not set")
 conn = psycopg.connect(DSN)
 cur = conn.cursor()
 

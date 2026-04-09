@@ -23,7 +23,21 @@ import { join, basename } from "path";
 import { parse as parseYAML } from "yaml";
 import type { DeterministicResult, Entity, Fact, Segment, Episode } from "./deterministic";
 
-const CODEX_SHARED_DIR = process.env.CODEX_SHARED_DIR || "./data/codex-shared";
+const CODEX_SHARED_DIR = process.env.BRAINCORE_CODEX_SHARED_DIR || "./data/codex-shared";
+
+function emptyCodexSharedResult(reason: string): DeterministicResult {
+  return {
+    entities: [],
+    facts: [],
+    segments: [],
+    episode: {
+      type: "session",
+      title: "CODEX_SHARED scan: skipped (directory not available)",
+      summary: reason,
+    },
+    scope_path: "codex:shared",
+  };
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -108,14 +122,19 @@ export async function parseCodexShared(
   sharedDir?: string,
 ): Promise<DeterministicResult> {
   const dir = sharedDir || CODEX_SHARED_DIR;
-  const indexPath = join(dir, "_index.json");
 
-  if (!existsSync(dir)) {
-    throw new Error(`CODEX_SHARED directory not found: ${dir}`);
+  if (!dir || !existsSync(dir)) {
+    const msg = `CODEX_SHARED directory not found: ${dir || "(unset)"}`;
+    console.log(`  [codex-shared-parser] Skipping — ${msg}`);
+    return emptyCodexSharedResult(msg);
   }
 
+  const indexPath = join(dir, "_index.json");
+
   if (!existsSync(indexPath)) {
-    throw new Error(`CODEX_SHARED _index.json not found: ${indexPath}`);
+    const msg = `CODEX_SHARED _index.json not found: ${indexPath}`;
+    console.log(`  [codex-shared-parser] Skipping — ${msg}`);
+    return emptyCodexSharedResult(msg);
   }
 
   // Load the index

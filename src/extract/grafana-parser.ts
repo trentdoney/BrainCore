@@ -83,12 +83,99 @@ interface GrafanaAnnotation {
   text: string;
   newState: string;   // "alerting", "ok", "pending", "no_data"
   prevState: string;
+  /**
+   * Structured labels parsed from annotation.text for Grafana 11.2 Unified
+   * Alerting. Populated by normalizeAnnotation() — always present, may be
+   * empty. Keys are lowercase label names (alertname, service, severity, ...).
+   */
+  labels: Record<string, string>;
 }
 
 interface GrafanaDashboard {
   uid: string;
   title: string;
   tags: string[];
+}
+
+/**
+ * Parse Grafana 11.2 Unified Alerting annotation.text into a labels object.
+ *
+ * Grafana 11.2 stopped populating annotation.tags[] and annotation.alertName
+ * on alert-state-change annotations. Labels are instead embedded in the text
+ * field as:
+ *
+ *   "BrainCore Test - Fact Check {alertname=BrainCore Test - Fact Check, \
+ *    service=braincore, severity=info} - A=26947.000000, C=1.000000"
+ *
+ * Returns the rule title (text before the `{`) and a labels map. Either may
+ * be empty if the text doesn't match the expected shape.
+ */
+export function parseUnifiedAlertingText(text: string): {
+  ruleTitle: string;
+  labels: Record<string, string>;
+} {
+  if (!text) return { ruleTitle: "", labels: {} };
+
+  const labels: Record<string, string> = {};
+  const braceMatch = text.match(/\{([^}]+)\}/);
+  if (braceMatch) {
+    const inside = braceMatch[1];
+    // Split on commas but keep it forgiving about whitespace.
+    for (const pair of inside.split(/,\s*/)) {
+      const eq = pair.indexOf("=");
+      if (eq <= 0) continue;
+      const key = pair.slice(0, eq).trim().toLowerCase();
+      const value = pair.slice(eq + 1).trim();
+      if (key) labels[key] = value;
+    }
+  }
+
+  // Rule title is everything before the first `{`, trimmed.
+  let ruleTitle = "";
+  const braceIdx = text.indexOf("{");
+  if (braceIdx > 0) {
+    ruleTitle = text.slice(0, braceIdx).trim();
+  } else {
+    ruleTitle = text.trim();
+  }
+
+  return { ruleTitle, labels };
+}
+
+/**
+ * Normalize a Grafana annotation in place so downstream code can keep using
+ * annotation.tags[] and annotation.alertName regardless of whether Grafana
+ * populated them natively (legacy) or embedded them in annotation.text
+ * (Unified Alerting 11.2+).
+ */
+function normalizeAnnotation(ann: GrafanaAnnotation): GrafanaAnnotation {
+  // Ensure labels field is always present.
+  if (!ann.labels) ann.labels = {};
+
+  // Only re-parse if we need to fill in missing data.
+  const needsParse =
+    !ann.alertName ||
+    ann.alertName.trim() === "" ||
+    !ann.tags ||
+    ann.tags.length === 0;
+
+  if (!needsParse) return ann;
+
+  const { ruleTitle, labels } = parseUnifiedAlertingText(ann.text || "");
+  ann.labels = labels;
+
+  // Populate alertName from labels.alertname, falling back to rule title.
+  if (!ann.alertName || ann.alertName.trim() === "") {
+    ann.alertName = labels.alertname || ruleTitle || "";
+  }
+
+  // Synthesize tags[] as "key=value" strings so existing tag logic keeps
+  // working (service/severity tag scans, entity building, correlation).
+  if (!ann.tags || ann.tags.length === 0) {
+    ann.tags = Object.entries(labels).map(([k, v]) => `${k}=${v}`);
+  }
+
+  return ann;
 }
 
 async function fetchAnnotations(
@@ -103,7 +190,8 @@ async function fetchAnnotations(
   if (!res.ok) {
     throw new Error(`Grafana annotations API error: ${res.status} ${await res.text()}`);
   }
-  return (await res.json()) as GrafanaAnnotation[];
+  const raw = (await res.json()) as GrafanaAnnotation[];
+  return raw.map(normalizeAnnotation);
 }
 
 async function fetchDashboard(
@@ -145,7 +233,26 @@ function correlateAlert(
 ): { incident: IncidentRef; matchType: string } | null {
   const alertTime = new Date(annotation.time);
   const twoHoursMs = 2 * 60 * 60 * 1000;
-  const alertTags = new Set(annotation.tags.map((t) => t.toLowerCase()));
+
+  // Collect candidate service names from labels (preferred, Unified Alerting)
+  // and raw tag strings (legacy shape). Labels get split on `=` so only the
+  // values (e.g. "braincore") are compared, not keys like "service".
+  const candidateTokens = new Set<string>();
+  for (const [key, val] of Object.entries(annotation.labels || {})) {
+    if (!val) continue;
+    candidateTokens.add(val.toLowerCase());
+    if (key === "service") candidateTokens.add(val.toLowerCase());
+  }
+  for (const rawTag of annotation.tags || []) {
+    const t = rawTag.toLowerCase();
+    if (t.includes("=")) {
+      const [, v] = t.split("=", 2);
+      if (v) candidateTokens.add(v);
+    } else {
+      candidateTokens.add(t);
+    }
+  }
+
   const dashLower = dashboardTitle.toLowerCase();
 
   for (const incident of incidents) {
@@ -156,8 +263,9 @@ function correlateAlert(
 
     // Check service tag match
     const incidentName = incident.canonical_name.toLowerCase();
-    for (const tag of alertTags) {
-      if (incidentName.includes(tag) || tag.includes(incidentName.split("-")[0])) {
+    for (const tok of candidateTokens) {
+      if (!tok) continue;
+      if (incidentName.includes(tok) || tok.includes(incidentName.split("-")[0])) {
         return { incident, matchType: "service_tag" };
       }
     }
@@ -263,14 +371,49 @@ export async function parseGrafanaAlerts(
       type: "incident",
     });
 
-    // Service entities from tags
-    for (const tag of ann.tags) {
-      const tagLower = tag.toLowerCase();
-      if (!seenEntities.has(`service:${tagLower}`)) {
-        seenEntities.add(`service:${tagLower}`);
-        entities.push({ name: tagLower, type: "service" });
+    // Resolve the alert's logical service and severity labels.
+    // Prefer Unified Alerting labels, fall back to parsing legacy k=v tags,
+    // then derive severity from alert state as a last resort.
+    const labelService =
+      (ann.labels?.service || "").toLowerCase() || undefined;
+    const labelSeverity =
+      (ann.labels?.severity || "").toLowerCase() || undefined;
+
+    const stateDerivedSeverity =
+      ann.newState?.toLowerCase() === "alerting" ? "warning" : "info";
+    const severity = labelSeverity || stateDerivedSeverity;
+
+    // Service entity from labels (preferred) or fallback to filtered tags.
+    const serviceCandidates = new Set<string>();
+    if (labelService) serviceCandidates.add(labelService);
+    for (const rawTag of ann.tags) {
+      const t = rawTag.toLowerCase();
+      if (t.includes("=")) {
+        const [k, v] = t.split("=", 2);
+        // Only treat service/app/component/job labels as service entities.
+        if (v && ["service", "app", "component", "job", "target"].includes(k)) {
+          serviceCandidates.add(v);
+        }
+      } else if (t) {
+        serviceCandidates.add(t);
       }
     }
+    for (const svc of serviceCandidates) {
+      if (!seenEntities.has(`service:${svc}`)) {
+        seenEntities.add(`service:${svc}`);
+        entities.push({ name: svc, type: "service" });
+      }
+    }
+
+    const serviceForMeta = labelService || [...serviceCandidates][0] || "unknown";
+
+    // Per-fact metadata that quality-gate's validateMonitoringAlert expects.
+    const factMeta = {
+      service: serviceForMeta,
+      severity,
+      labels: ann.labels,
+      alert_id: ann.id,
+    };
 
     // Segment: alert content
     const segContent = [
@@ -278,6 +421,8 @@ export async function parseGrafanaAlerts(
       `State: ${ann.prevState} -> ${ann.newState}`,
       `Dashboard: ${dashTitle}`,
       `Duration: ${durationStr}`,
+      `Service: ${serviceForMeta}`,
+      `Severity: ${severity}`,
       `Tags: ${ann.tags.join(", ") || "none"}`,
       ann.text ? `Details: ${ann.text}` : "",
     ].filter(Boolean).join("\n");
@@ -300,6 +445,9 @@ export async function parseGrafanaAlerts(
         prevState: ann.prevState,
         dashboard: dashTitle,
         duration: durationStr,
+        service: serviceForMeta,
+        severity,
+        labels: ann.labels,
         tags: ann.tags,
       },
       fact_kind: "event",
@@ -308,10 +456,10 @@ export async function parseGrafanaAlerts(
       valid_from: alertTime,
       valid_to: alertEndTime,
       segment_ids: [segKey],
+      metadata: factMeta,
     });
 
-    // Fact: severity derived from state
-    const severity = ann.newState === "alerting" ? "warning" : "info";
+    // Fact: severity (from labels if present, else derived from state)
     facts.push({
       subject: alertEntityName,
       predicate: "severity",
@@ -321,18 +469,20 @@ export async function parseGrafanaAlerts(
       confidence: 1.0,
       valid_from: alertTime,
       segment_ids: [segKey],
+      metadata: factMeta,
     });
 
-    // Tag associations
-    for (const tag of ann.tags) {
+    // Tag associations: emit one tagged_service fact per service candidate.
+    for (const svc of serviceCandidates) {
       facts.push({
         subject: alertEntityName,
         predicate: "tagged_service",
-        object_value: tag.toLowerCase(),
+        object_value: svc,
         fact_kind: "state",
         assertion_class: "deterministic",
         confidence: 1.0,
         segment_ids: [segKey],
+        metadata: factMeta,
       });
     }
 
@@ -354,6 +504,7 @@ export async function parseGrafanaAlerts(
         confidence: confMap[correlation.matchType] || 0.5,
         valid_from: alertTime,
         segment_ids: [segKey],
+        metadata: factMeta,
       });
     }
 

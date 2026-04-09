@@ -28,6 +28,13 @@ export interface Fact {
   valid_from?: string;
   valid_to?: string;
   segment_ids: string[];
+  /**
+   * Optional per-fact metadata used by quality-gate validators to make
+   * per-fact decisions (e.g. monitoring_alert service/severity). Not
+   * persisted as a dedicated column — load.ts reads fields from here when
+   * invoking the validator and discards them before INSERT.
+   */
+  metadata?: Record<string, any>;
 }
 
 export interface Segment {

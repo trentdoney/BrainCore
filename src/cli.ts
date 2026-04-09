@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * cli.ts — BrainCore CLI entry point.
- * Wires all commands: scan, archive, extract, consolidate, publish-notes, etc.
+ * Wires all commands: archive, extract, consolidate, publish-notes, etc.
  */
 
 import { config } from "./config";
@@ -22,30 +22,6 @@ function hasFlag(name: string): boolean {
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 const commands: Record<string, () => Promise<void>> = {
-  scan: async () => {
-    const leadWindow = getFlag("lead-window");
-    const { sql, testConnection } = await import("./db");
-    const { scanArtifacts } = await import("./archive/scanner");
-
-    console.log("\n=== BrainCore Scan ===\n");
-    const connected = await testConnection();
-    if (!connected) { process.exit(1); }
-
-    const result = await scanArtifacts(sql, {
-      leadWindow: leadWindow ? parseInt(leadWindow, 10) : 14,
-    });
-
-    console.log(`  Discovered: ${result.discovered}`);
-    console.log(`  Nearing TTL: ${result.nearingTtl}`);
-    if (result.errors.length > 0) {
-      console.log(`  Errors: ${result.errors.length}`);
-      for (const e of result.errors.slice(0, 10)) {
-        console.log(`    - ${e}`);
-      }
-    }
-    await sql.end();
-  },
-
   archive: async () => {
     const pending = hasFlag("pending");
     if (!pending) {
@@ -312,38 +288,6 @@ const commands: Record<string, () => Promise<void>> = {
       for (const b of blocked) {
         console.log(`  [${b.preservation_state}] ${b.source_key}`);
         console.log(`    Path: ${b.original_path}`);
-      }
-    }
-    await sql.end();
-  },
-
-  "archive-session": async () => {
-    const sessionDir = getFlag("session-dir");
-    const { sql, testConnection } = await import("./db");
-    const { scanArtifacts } = await import("./archive/scanner");
-
-    console.log("\n=== BrainCore Archive Session ===\n");
-    const connected = await testConnection();
-    if (!connected) { process.exit(1); }
-
-    const result = await scanArtifacts(sql, { leadWindow: 0 });
-    console.log(`  Discovered: ${result.discovered} new artifacts`);
-    await sql.end();
-  },
-
-  replicate: async () => {
-    const { sql, testConnection } = await import("./db");
-    const { replicateArchives } = await import("./archive/replicator");
-
-    console.log("\n=== BrainCore Replicate ===\n");
-    const connected = await testConnection();
-    if (!connected) { process.exit(1); }
-
-    const result = await replicateArchives(sql);
-    console.log(`  Synced: ${result.synced} files`);
-    if (result.errors.length > 0) {
-      for (const e of result.errors) {
-        console.error(`  Error: ${e}`);
       }
     }
     await sql.end();
@@ -1303,8 +1247,6 @@ if (!command || !commands[command]) {
   console.log("    --use-claude       Escalate to Claude CLI for semantic");
   console.log("    --skip-semantic    Skip LLM extraction, deterministic only");
   console.log("    --dry-run          Print results without database writes");
-  console.log("  scan             Scan for new artifacts");
-  console.log("    --lead-window <n>  Days before TTL to flag (default: 14)");
   console.log("  archive --pending  Archive discovered artifacts");
   console.log("  consolidate --delta  Compile patterns and playbooks");
   console.log("  publish-notes      Publish memories to markdown");
@@ -1314,8 +1256,6 @@ if (!command || !commands[command]) {
   console.log("    --run              Run eval on all gold set cases");
   console.log("    --report           Print last eval report");
   console.log("  gate-check         Report blocked/failed artifacts");
-  console.log("  archive-session    Quick session scan + archive");
-  console.log("  replicate          Rsync archives to backup");
   console.log("  health-check       Check vLLM endpoint health");
   console.log("  project            Project lifecycle commands");
   console.log("    list               Show projects with artifact/fact counts");

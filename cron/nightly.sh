@@ -59,20 +59,17 @@ log "=== BrainCore nightly pipeline v2 starting ==="
 log "Mode: ${DRY_RUN:+DRY_RUN}${DRY_RUN:-LIVE}"
 
 # Group A: Independent ingestion (parallel)
-log "Group A: scan + codex-sync (parallel)"
-run_step "scan" bun src/cli.ts scan --lead-window 14 &
+log "Group A: codex-sync"
 if [ -n "${BRAINCORE_CODEX_SYNC_SRC:-}" ] && [ -n "${BRAINCORE_CODEX_SYNC_DEST:-}" ]; then
-  run_step "codex-sync" rsync -a "$BRAINCORE_CODEX_SYNC_SRC" "$BRAINCORE_CODEX_SYNC_DEST" &
+  run_step "codex-sync" rsync -a "$BRAINCORE_CODEX_SYNC_SRC" "$BRAINCORE_CODEX_SYNC_DEST"
 else
   log "SKIP: codex-sync (BRAINCORE_CODEX_SYNC_SRC/DEST not set)"
 fi
-wait
 log "Group A complete"
 
-# Group B: Archive + replicate (sequential)
-log "Group B: archive + replicate (sequential)"
+# Group B: Archive pending artifacts
+log "Group B: archive pending"
 run_step "archive" bun src/cli.ts archive --pending
-run_step "replicate" bun src/cli.ts replicate
 
 # Group C: Parallel extraction from all sources
 log "Group C: extraction (parallel)"

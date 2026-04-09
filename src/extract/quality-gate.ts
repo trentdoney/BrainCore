@@ -141,7 +141,32 @@ function validateMonitoringAlert(
   fact: FactCandidate,
   ctx: ValidationContext,
 ): string | null {
-  if (!ctx.metadata?.service || !ctx.metadata?.severity) {
+  // Resolve service/severity from any of:
+  //  1. Per-fact metadata (preferred — grafana-parser populates this)
+  //  2. Embedded in object_value (alert_fired facts from grafana-parser)
+  //  3. The fact itself (severity/tagged_service predicates carry the value)
+  //  4. Batch-level ctx.metadata (legacy path / other ingestion sources)
+  const factMeta = (fact as any).metadata as Record<string, any> | undefined;
+  const objVal = fact.object_value;
+  const isObj = objVal && typeof objVal === "object" && !Array.isArray(objVal);
+
+  const service =
+    factMeta?.service ||
+    (isObj ? objVal.service : undefined) ||
+    (fact.predicate === "tagged_service" && typeof objVal === "string"
+      ? objVal
+      : undefined) ||
+    ctx.metadata?.service;
+
+  const severity =
+    factMeta?.severity ||
+    (isObj ? objVal.severity : undefined) ||
+    (fact.predicate === "severity" && typeof objVal === "string"
+      ? objVal
+      : undefined) ||
+    ctx.metadata?.severity;
+
+  if (!service || !severity) {
     return `monitoring_alert fact (${fact.subject}/${fact.predicate}) rejected: missing service or severity`;
   }
   return null;

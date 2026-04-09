@@ -19,7 +19,8 @@ set -euo pipefail
 
 ARCHIVE_ROOT="./data/archive/opsvault_incident"
 OPSVAULT_ROOT="./data/vault"
-PG_DSN="${BRAINCORE_POSTGRES_DSN:-postgresql://braincore:braincore@localhost:5432/braincore}"
+: "${BRAINCORE_POSTGRES_DSN:?BRAINCORE_POSTGRES_DSN is not set}"
+PG_DSN="$BRAINCORE_POSTGRES_DSN"
 DRY_RUN=false
 LOG_FILE="./data/archive/bulk-archive-$(date +%Y%m%d-%H%M%S).log"
 

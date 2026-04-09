@@ -6,16 +6,17 @@ and writes the resulting 384-dim vectors back to PostgreSQL.
 """
 
 import sys
-import json
+import os
 import time
 import psycopg
 import requests
 import numpy as np
 from pgvector.psycopg import register_vector
 
-import os
-DSN = os.environ.get("BRAINCORE_POSTGRES_DSN", "postgresql://braincore:braincore@localhost:5432/braincore")
-EMBED_URL = "http://localhost:8900/embed"
+DSN = os.environ.get("BRAINCORE_POSTGRES_DSN")
+if not DSN:
+    raise SystemExit("BRAINCORE_POSTGRES_DSN is not set")
+EMBED_URL = os.environ.get("BRAINCORE_EMBED_URL", "http://localhost:8900/embed")
 BATCH_SIZE = 32
 
 

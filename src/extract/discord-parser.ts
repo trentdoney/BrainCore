@@ -12,10 +12,25 @@
  */
 
 import Database from "bun:sqlite";
+import { existsSync } from "fs";
 import type { DeterministicResult, Entity, Fact, Segment, Episode } from "./deterministic";
 
-const DISCORD_DB_PATH = process.env.DISCORD_DB_PATH
+const DISCORD_DB_PATH = process.env.BRAINCORE_DISCORD_DB_PATH
   || "./data/discord-digest.db";
+
+function emptyDiscordResult(): DeterministicResult {
+  return {
+    entities: [],
+    facts: [],
+    segments: [],
+    episode: {
+      type: "session",
+      title: "Discord digest: skipped (database not available)",
+      summary: "Discord digest database not found; skipping extraction.",
+    },
+    scope_path: "discord:digest",
+  };
+}
 
 /**
  * Sanitize text for PostgreSQL JSON storage.
@@ -125,6 +140,10 @@ export function parseDiscordSummaries(
   opts: DiscordParseOptions = {},
 ): DeterministicResult {
   const dbPath = opts.dbPath || DISCORD_DB_PATH;
+  if (!dbPath || !existsSync(dbPath)) {
+    console.log(`  [discord-parser] Skipping — database not found at ${dbPath || "(unset)"}`);
+    return emptyDiscordResult();
+  }
   const db = new Database(dbPath, { readonly: true });
 
   try {
@@ -273,6 +292,7 @@ export function parseDiscordSummaries(
  */
 export function getLatestDiscordTimestamp(dbPath?: string): string | null {
   const path = dbPath || DISCORD_DB_PATH;
+  if (!path || !existsSync(path)) return null;
   const db = new Database(path, { readonly: true });
   try {
     const row = db.prepare("SELECT MAX(createdAt) as latest FROM micro_summaries").get() as any;
@@ -287,6 +307,7 @@ export function getLatestDiscordTimestamp(dbPath?: string): string | null {
  */
 export function countDiscordSummaries(since?: string, dbPath?: string): number {
   const path = dbPath || DISCORD_DB_PATH;
+  if (!path || !existsSync(path)) return 0;
   const db = new Database(path, { readonly: true });
   try {
     if (since) {

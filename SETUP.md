@@ -16,19 +16,19 @@ docker compose -f examples/docker-compose.yml up -d
 # Wait for PostgreSQL to be ready
 sleep 5
 
+# Export your connection string (match the docker-compose values)
+export BRAINCORE_POSTGRES_DSN="$BRAINCORE_POSTGRES_DSN"
+
 # Initialize schema
-psql postgresql://braincore:braincore@localhost:5432/braincore \
-  -f sql/001_preserve_schema.sql
+psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql
 
 # Seed entities (customize first)
-psql postgresql://braincore:braincore@localhost:5432/braincore \
-  -f sql/003_seed_entities.sql
+psql "$BRAINCORE_POSTGRES_DSN" -f sql/003_seed_entities.sql
 
 # Optionally seed example projects
 cp sql/004_seed_projects.example.sql sql/004_seed_projects.sql
 # Edit sql/004_seed_projects.sql with your projects
-psql postgresql://braincore:braincore@localhost:5432/braincore \
-  -f sql/004_seed_projects.sql
+psql "$BRAINCORE_POSTGRES_DSN" -f sql/004_seed_projects.sql
 ```
 
 ## Manual PostgreSQL Setup
@@ -47,7 +47,8 @@ CREATE SCHEMA IF NOT EXISTS preserve;
 GRANT ALL ON SCHEMA preserve TO braincore;
 ```
 
-Then run the schema migration:
+Then set `BRAINCORE_POSTGRES_DSN` in your environment (see `.env.example` for the expected format) and run the schema migration:
+
 ```bash
 psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql
 ```
@@ -66,7 +67,7 @@ cp .env.example .env
 ```
 
 Key configuration:
-- `BRAINCORE_POSTGRES_DSN` — PostgreSQL connection string (required)
+- `BRAINCORE_POSTGRES_DSN` — PostgreSQL connection string (required). See `.env.example` for format.
 - `BRAINCORE_VLLM_ENDPOINTS` — Local vLLM endpoints for semantic extraction
 - `BRAINCORE_EMBED_URL` — Embedding service URL (384-dim vectors)
 - `BRAINCORE_KNOWN_DEVICES` — Your device names for entity extraction
@@ -110,7 +111,7 @@ crontab -e
 
 ```bash
 # Check database connection
-bun src/cli.ts scan --lead-window 0
+bun src/cli.ts maintenance --stats
 
 # Check vLLM health
 bun src/cli.ts health-check

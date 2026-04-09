@@ -295,7 +295,9 @@ export async function loadExtraction(
     `;
     const sourceType = artRow?.source_type || "opsvault_incident";
 
-    // Combine all fact candidates for quality gate check
+    // Combine all fact candidates for quality gate check. Per-fact `metadata`
+    // (e.g. grafana-parser's {service, severity, labels, alert_id}) is carried
+    // through so source-type validators can make per-fact decisions.
     const allFactCandidates: FactCandidate[] = [
       ...deterministic.facts.map(f => ({
         subject: f.subject,
@@ -304,6 +306,7 @@ export async function loadExtraction(
         fact_kind: f.fact_kind,
         segment_ids: f.segment_ids,
         confidence: f.confidence,
+        metadata: (f as any).metadata,
       })),
       ...(semantic?.facts || []).map(f => ({
         subject: f.subject,
@@ -312,6 +315,7 @@ export async function loadExtraction(
         fact_kind: f.fact_kind,
         segment_ids: f.segment_ids,
         confidence: f.confidence,
+        metadata: (f as any).metadata,
       })),
       ...(semantic?.lessons || []).map(l => ({
         subject: "system",
@@ -323,10 +327,28 @@ export async function loadExtraction(
       })),
     ];
 
+    // Batch-level metadata fallback: if every deterministic fact carries the
+    // same service/severity (as grafana-parser does for a single-annotation
+    // batch), promote that to the ctx so validators that only read ctx still
+    // succeed. Safe: per-fact metadata takes precedence inside the validator.
+    let batchMetadata: Record<string, any> | undefined;
+    if (sourceType === "monitoring_alert") {
+      const firstMeta = (deterministic.facts.find(
+        f => (f as any).metadata,
+      ) as any)?.metadata;
+      if (firstMeta) {
+        batchMetadata = {
+          service: firstMeta.service,
+          severity: firstMeta.severity,
+        };
+      }
+    }
+
     qualityGateResult = await checkQualityGate(allFactCandidates, sourceType, tx, {
       sourceKey: deterministic.scope_path,
       episodeId: episodeId || undefined,
       scopePath: deterministic.scope_path,
+      metadata: batchMetadata,
     });
 
     if (qualityGateResult.reasons.length > 0) {
