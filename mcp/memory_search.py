@@ -1,4 +1,4 @@
-"""BrainCore Memory — 4-stream hybrid retrieval for preserve schema.
+"""Strata Memory — 4-stream hybrid retrieval for preserve schema.
 
 Streams:
   1. Structured SQL   — entity name matching -> facts for that entity
@@ -12,6 +12,7 @@ Fusion: Reciprocal Rank Fusion with k=60
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -24,6 +25,10 @@ from .embedder import embed_query
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+
+# Tenant scoping — filter results to the active tenant plus the 'default'
+# scope that seed/legacy rows use when no tenant is set.
+TENANT = os.environ.get("BRAINCORE_TENANT", "default")
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +45,7 @@ class _Candidate:
     valid_from: Optional[str] = None
     valid_to: Optional[str] = None
     scope_path: Optional[str] = None
+    priority: Optional[int] = None
     evidence: list[dict] = field(default_factory=list)
 
 
@@ -49,8 +55,22 @@ class _ScoredCandidate:
     scores: dict = field(default_factory=dict)  # stream_name -> rrf_score
 
     @property
-    def total_score(self) -> float:
+    def raw_score(self) -> float:
+        """Sum of RRF contributions across all streams (pre-boost)."""
         return sum(self.scores.values())
+
+    @property
+    def priority_boost(self) -> float:
+        """Priority multiplier: 1 -> 2.0x, 5 -> 1.0x, 10 -> 0.2x.
+        Objects with no priority (segment/episode) get the neutral 1.0x."""
+        p = self.candidate.priority
+        if p is None:
+            return 1.0
+        return (11 - p) / 5.0
+
+    @property
+    def total_score(self) -> float:
+        return self.raw_score * self.priority_boost
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +109,12 @@ def _scope_clause(scope: Optional[str], prefix: str = "") -> tuple[str, list]:
     return f" AND {col} LIKE %s", [scope + "%"]
 
 
+def _tenant_clause(tenant: str, prefix: str = "") -> tuple[str, list]:
+    """Build tenant filter — match active tenant OR legacy 'default' rows."""
+    col = f"{prefix}tenant"
+    return f" AND ({col} = %s OR {col} = 'default')", [tenant]
+
+
 def _vec_literal(arr) -> str:
     """Convert numpy array to pgvector literal."""
     return "[" + ",".join(f"{x:.8f}" for x in arr) + "]"
@@ -112,6 +138,7 @@ def _stream_structured(
 
     as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
     scope_sql, scope_params = _scope_clause(scope, "f.")
+    tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
 
     # Search for entity by canonical_name or alias match
     sql = f"""
@@ -130,7 +157,8 @@ def _stream_structured(
             f.confidence::float,
             f.valid_from,
             f.valid_to,
-            f.scope_path
+            f.scope_path,
+            f.priority
         FROM preserve.fact f
         JOIN matched_entities me ON f.subject_entity_id = me.entity_id
         JOIN preserve.entity e_sub ON f.subject_entity_id = e_sub.entity_id
@@ -138,12 +166,19 @@ def _stream_structured(
         WHERE f.current_status = 'active'
             {as_of_sql}
             {scope_sql}
+            {tenant_sql}
         ORDER BY f.confidence DESC, f.last_seen_at DESC NULLS LAST
         LIMIT %s
     """
 
     like_pattern = f"%{query}%"
-    params = [like_pattern, like_pattern] + as_of_params + scope_params + [limit * 3]
+    params = (
+        [like_pattern, like_pattern]
+        + as_of_params
+        + scope_params
+        + tenant_params
+        + [limit * 3]
+    )
 
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -160,6 +195,7 @@ def _stream_structured(
             valid_from=_ts_str(r["valid_from"]),
             valid_to=_ts_str(r["valid_to"]),
             scope_path=r["scope_path"],
+            priority=r.get("priority"),
         )
         for r in rows
     ]
@@ -187,6 +223,7 @@ def _stream_fts(
             if type_filter in (None, "fact"):
                 as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
                 scope_sql, scope_params = _scope_clause(scope, "f.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -195,16 +232,24 @@ def _stream_fts(
                         COALESCE(f.object_value::text, '') AS summary,
                         f.confidence::float,
                         f.valid_from, f.valid_to, f.scope_path,
+                        f.priority,
                         ts_rank_cd(f.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.fact f
                     WHERE f.fts @@ plainto_tsquery('english', %s)
                       AND f.current_status = 'active'
                       {as_of_sql}
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
-                params = [query, query] + as_of_params + scope_params + [sub_limit]
+                params = (
+                    [query, query]
+                    + as_of_params
+                    + scope_params
+                    + tenant_params
+                    + [sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -214,12 +259,14 @@ def _stream_fts(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- memory FTS --
             if type_filter in (None, "memory"):
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -228,15 +275,23 @@ def _stream_fts(
                         m.narrative AS summary,
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
+                        m.priority,
                         ts_rank_cd(m.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.memory m
                     WHERE m.fts @@ plainto_tsquery('english', %s)
                       {as_of_sql}
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
-                params = [query, query] + as_of_params + scope_params + [sub_limit]
+                params = (
+                    [query, query]
+                    + as_of_params
+                    + scope_params
+                    + tenant_params
+                    + [sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -246,11 +301,13 @@ def _stream_fts(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- segment FTS --
             if type_filter in (None, "segment"):
                 scope_sql, scope_params = _scope_clause(scope, "s.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "s.")
                 sql = f"""
                     SELECT
                         s.segment_id::text AS object_id,
@@ -259,14 +316,21 @@ def _stream_fts(
                         LEFT(s.content, 500) AS summary,
                         NULL::float AS confidence,
                         NULL AS valid_from, NULL AS valid_to, s.scope_path,
+                        NULL::int AS priority,
                         ts_rank_cd(s.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.segment s
                     WHERE s.fts @@ plainto_tsquery('english', %s)
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
-                params = [query, query] + scope_params + [sub_limit]
+                params = (
+                    [query, query]
+                    + scope_params
+                    + tenant_params
+                    + [sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -275,11 +339,13 @@ def _stream_fts(
                         confidence=None,
                         valid_from=None, valid_to=None,
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- episode FTS --
             if type_filter in (None, "episode"):
                 scope_sql, scope_params = _scope_clause(scope, "ep.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "ep.")
                 sql = f"""
                     SELECT
                         ep.episode_id::text AS object_id,
@@ -289,14 +355,21 @@ def _stream_fts(
                         NULL::float AS confidence,
                         ep.start_at AS valid_from, ep.end_at AS valid_to,
                         ep.scope_path,
+                        NULL::int AS priority,
                         ts_rank_cd(ep.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.episode ep
                     WHERE ep.fts @@ plainto_tsquery('english', %s)
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
-                params = [query, query] + scope_params + [sub_limit]
+                params = (
+                    [query, query]
+                    + scope_params
+                    + tenant_params
+                    + [sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -306,6 +379,7 @@ def _stream_fts(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
     return candidates
@@ -335,6 +409,7 @@ def _stream_vector(
             if type_filter in (None, "fact"):
                 as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
                 scope_sql, scope_params = _scope_clause(scope, "f.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -343,16 +418,24 @@ def _stream_vector(
                         COALESCE(f.object_value::text, '') AS summary,
                         f.confidence::float,
                         f.valid_from, f.valid_to, f.scope_path,
+                        f.priority,
                         1 - (f.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.fact f
                     WHERE f.embedding IS NOT NULL
                       AND f.current_status = 'active'
                       {as_of_sql}
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY f.embedding <=> %s::vector
                     LIMIT %s
                 """
-                params = [emb_str] + as_of_params + scope_params + [emb_str, sub_limit]
+                params = (
+                    [emb_str]
+                    + as_of_params
+                    + scope_params
+                    + tenant_params
+                    + [emb_str, sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -362,12 +445,14 @@ def _stream_vector(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- memory vector --
             if type_filter in (None, "memory"):
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -376,15 +461,23 @@ def _stream_vector(
                         m.narrative AS summary,
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
+                        m.priority,
                         1 - (m.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.memory m
                     WHERE m.embedding IS NOT NULL
                       {as_of_sql}
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY m.embedding <=> %s::vector
                     LIMIT %s
                 """
-                params = [emb_str] + as_of_params + scope_params + [emb_str, sub_limit]
+                params = (
+                    [emb_str]
+                    + as_of_params
+                    + scope_params
+                    + tenant_params
+                    + [emb_str, sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -394,11 +487,13 @@ def _stream_vector(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- segment vector --
             if type_filter in (None, "segment"):
                 scope_sql, scope_params = _scope_clause(scope, "s.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "s.")
                 sql = f"""
                     SELECT
                         s.segment_id::text AS object_id,
@@ -407,14 +502,21 @@ def _stream_vector(
                         LEFT(s.content, 500) AS summary,
                         NULL::float AS confidence,
                         NULL AS valid_from, NULL AS valid_to, s.scope_path,
+                        NULL::int AS priority,
                         1 - (s.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.segment s
                     WHERE s.embedding IS NOT NULL
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY s.embedding <=> %s::vector
                     LIMIT %s
                 """
-                params = [emb_str] + scope_params + [emb_str, sub_limit]
+                params = (
+                    [emb_str]
+                    + scope_params
+                    + tenant_params
+                    + [emb_str, sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -423,11 +525,13 @@ def _stream_vector(
                         confidence=None,
                         valid_from=None, valid_to=None,
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
             # -- episode vector --
             if type_filter in (None, "episode"):
                 scope_sql, scope_params = _scope_clause(scope, "ep.")
+                tenant_sql, tenant_params = _tenant_clause(TENANT, "ep.")
                 sql = f"""
                     SELECT
                         ep.episode_id::text AS object_id,
@@ -437,14 +541,21 @@ def _stream_vector(
                         NULL::float AS confidence,
                         ep.start_at AS valid_from, ep.end_at AS valid_to,
                         ep.scope_path,
+                        NULL::int AS priority,
                         1 - (ep.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.episode ep
                     WHERE ep.embedding IS NOT NULL
                       {scope_sql}
+                      {tenant_sql}
                     ORDER BY ep.embedding <=> %s::vector
                     LIMIT %s
                 """
-                params = [emb_str] + scope_params + [emb_str, sub_limit]
+                params = (
+                    [emb_str]
+                    + scope_params
+                    + tenant_params
+                    + [emb_str, sub_limit]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     candidates.append(_Candidate(
@@ -454,6 +565,7 @@ def _stream_vector(
                         valid_from=_ts_str(r["valid_from"]),
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
+                        priority=r.get("priority"),
                     ))
 
     return candidates
@@ -486,6 +598,7 @@ def _stream_temporal_expand(
 
     candidates: list[_Candidate] = []
     as_of_sql, as_of_params = _as_of_clause(as_of, "f2.")
+    tenant_sql, tenant_params = _tenant_clause(TENANT, "f2.")
 
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -500,7 +613,8 @@ def _stream_temporal_expand(
                         f2.predicate AS title,
                         COALESCE(f2.object_value::text, '') AS summary,
                         f2.confidence::float,
-                        f2.valid_from, f2.valid_to, f2.scope_path
+                        f2.valid_from, f2.valid_to, f2.scope_path,
+                        f2.priority
                     FROM preserve.fact f1
                     JOIN preserve.fact f2
                         ON f2.subject_entity_id = f1.subject_entity_id
@@ -508,9 +622,10 @@ def _stream_temporal_expand(
                     WHERE f1.fact_id::text IN ({placeholders})
                       AND f2.current_status = 'active'
                       {as_of_sql}
+                      {tenant_sql}
                     LIMIT %s
                 """
-                params = fact_ids + as_of_params + [limit * 2]
+                params = fact_ids + as_of_params + tenant_params + [limit * 2]
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     if r["object_id"] not in seen_candidates:
@@ -521,12 +636,14 @@ def _stream_temporal_expand(
                             valid_from=_ts_str(r["valid_from"]),
                             valid_to=_ts_str(r["valid_to"]),
                             scope_path=r["scope_path"],
+                            priority=r.get("priority"),
                         ))
 
             # Expand: for episodes found, find associated facts
             if episode_ids:
                 placeholders = ",".join(["%s"] * len(episode_ids))
                 as_of_sql2, as_of_params2 = _as_of_clause(as_of, "f.")
+                tenant_sql2, tenant_params2 = _tenant_clause(TENANT, "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -534,14 +651,21 @@ def _stream_temporal_expand(
                         f.predicate AS title,
                         COALESCE(f.object_value::text, '') AS summary,
                         f.confidence::float,
-                        f.valid_from, f.valid_to, f.scope_path
+                        f.valid_from, f.valid_to, f.scope_path,
+                        f.priority
                     FROM preserve.fact f
                     WHERE f.episode_id::text IN ({placeholders})
                       AND f.current_status = 'active'
                       {as_of_sql2}
+                      {tenant_sql2}
                     LIMIT %s
                 """
-                params = episode_ids + as_of_params2 + [limit * 2]
+                params = (
+                    episode_ids
+                    + as_of_params2
+                    + tenant_params2
+                    + [limit * 2]
+                )
                 cur.execute(sql, params)
                 for r in cur.fetchall():
                     if r["object_id"] not in seen_candidates:
@@ -552,6 +676,7 @@ def _stream_temporal_expand(
                             valid_from=_ts_str(r["valid_from"]),
                             valid_to=_ts_str(r["valid_to"]),
                             scope_path=r["scope_path"],
+                            priority=r.get("priority"),
                         ))
 
     return candidates
@@ -701,6 +826,7 @@ def memory_search(
             "summary": c.summary,
             "confidence": c.confidence,
             "score": round(sc.total_score, 6),
+            "priority": c.priority,
             "valid_from": c.valid_from,
             "valid_to": c.valid_to,
             "evidence": [
