@@ -5,11 +5,10 @@ Autonomous memory system for AI infrastructure. BrainCore extracts, preserves, a
 ## What It Does
 
 BrainCore watches your infrastructure and automatically:
-1. **Scans** for new incidents, sessions, and artifacts
-2. **Archives** them with integrity checksums
-3. **Extracts** structured facts using deterministic parsing + LLM semantic analysis
-4. **Consolidates** recurring patterns into actionable memories and playbooks
-5. **Publishes** knowledge as searchable, queryable data
+1. **Archives** incidents, sessions, and artifacts with integrity checksums
+2. **Extracts** structured facts using deterministic parsing + LLM semantic analysis
+3. **Consolidates** recurring patterns into actionable memories and playbooks
+4. **Publishes** knowledge as searchable, queryable data
 
 All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid retrieval (SQL + full-text + vector + temporal) with Reciprocal Rank Fusion.
 
@@ -22,58 +21,88 @@ All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid re
 - **Project scoping**: Facts, memories, and episodes auto-tagged to projects via service mapping
 - **Quality gate**: SHA256 fingerprint dedup, secret redaction, assertion class validation
 - **Local-first LLM**: Uses vLLM (OpenAI-compatible) with automatic Claude CLI fallback
-- **19-step nightly pipeline**: Fully automated scan-archive-extract-consolidate-publish cycle
+- **Multi-step parallel nightly pipeline**: Automated archive-extract-consolidate-publish cycle with parallel extractors and health gating
 - **Eval framework**: Gold-set benchmark with precision, recall, and evidence grounding metrics
 
 ## Quick Start
 
-```bash
-# 1. Set up PostgreSQL with pgvector
-docker compose -f examples/docker-compose.yml up -d
+The example fixture at `examples/sample-vault/` ships with 3 resolved incidents you can ingest end-to-end on a fresh clone:
 
-# 2. Install dependencies
+```bash
+# 1. Install dependencies
 bun install
 
-# 3. Initialize the schema
+# 2. Start PostgreSQL with pgvector
+docker compose -f examples/docker-compose.yml up -d
+
+# 3. Configure environment (edit DSN to match docker-compose credentials)
+cp .env.example .env
+# Set BRAINCORE_POSTGRES_DSN to match the docker-compose user/password/db
+# Set BRAINCORE_VAULT_ROOT=./examples/sample-vault
+
+# 4. Initialize schema + seed baseline entities
 psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql
 psql "$BRAINCORE_POSTGRES_DSN" -f sql/003_seed_entities.sql
 
-# 4. Copy and edit environment config
-cp .env.example .env
-# Edit .env with your database credentials and endpoints
+# 5. Archive the sample incidents (discovers + checksums + registers artifacts)
+bun src/cli.ts archive --pending
 
-# 5. Run a scan
-bun src/cli.ts scan --lead-window 14
+# 6. Extract facts (deterministic parser; add --use-claude for LLM semantic pass)
+bun src/cli.ts extract --pending --skip-semantic
 
-# 6. Extract from an incident
-bun src/cli.ts extract --incident ./data/vault/incidents/INC-001
+# 7. Consolidate deltas into patterns/playbooks
+bun src/cli.ts consolidate --delta
+
+# 8. Publish memories as markdown notes
+bun src/cli.ts publish-notes --changed
 ```
+
+After step 6 you should see 3 artifacts in `preserve.artifact` and facts extracted from each of the `INC-001`, `INC-002`, `INC-003` fixtures.
 
 ## CLI Commands
 
+Run `bun src/cli.ts --help` (or `-h` / `help`) to print the full usage block. The authoritative command list is below and mirrors `src/cli.ts` exactly:
+
 ```
-braincore scan              Discover new artifacts (incidents, sessions)
-braincore archive --pending Archive discovered artifacts
-braincore extract --pending Extract facts from archived artifacts
-braincore extract --incident <path>     Extract single incident
-braincore extract --session <path>      Extract Claude session
-braincore extract --codex-history       Extract Codex CLI history
-braincore extract --codex-shared        Extract Codex shared memory
-braincore extract --discord             Extract Discord digest summaries
-braincore extract --telegram            Extract Telegram chat messages
-braincore extract --grafana             Extract Grafana alert annotations
-braincore consolidate --delta           Find patterns + compile playbooks
-braincore publish-notes --changed       Publish memories as markdown
-braincore eval --run                    Run retrieval evaluation benchmark
-braincore gate-check                    Check for blocked/failed artifacts
-braincore health-check                  Check vLLM endpoint health
-braincore project list                  List projects with stats
-braincore project archive <name>        Archive a project
-braincore project merge <src> <dst>     Merge two projects
-braincore project fork <src> <new>      Fork a project
-braincore replicate                     Replicate archives to backup
-braincore maintenance --vacuum          Run weekly VACUUM
-braincore maintenance --detect-stale    Detect stale memories
+bun src/cli.ts <command> [options]
+
+Commands:
+  extract            Extract knowledge from incidents/sessions/PAI
+    --incident <path>  Extract a single incident
+    --session <path>   Extract a Claude session (JSONL)
+    --pai-memory       Extract PAI AUTO memory files
+    --codex-history    Extract Codex CLI history + sessions
+    --codex-shared     Extract CODEX_SHARED memory structure
+    --discord          Extract Discord digest micro_summaries
+    --telegram         Extract Telegram chat messages
+    --grafana          Extract Grafana dashboards/alerts
+    --pending          Extract all pending artifacts
+    --use-claude       Escalate to Claude CLI for semantic
+    --skip-semantic    Skip LLM extraction, deterministic only
+    --dry-run          Print results without database writes
+  archive --pending    Archive discovered artifacts
+  consolidate --delta  Compile patterns and playbooks
+  publish-notes        Publish memories to markdown
+    --changed          Only publish changed memories
+    --scope <path>     Filter by scope path prefix
+  eval                 Run extraction evaluation
+    --run              Run eval on all gold set cases
+    --report           Print last eval report
+  gate-check           Report blocked/failed artifacts
+  health-check         Check vLLM endpoint health
+  project              Project lifecycle commands
+    list               Show projects with artifact/fact counts
+    tag --retag-all    Re-run project resolution on all artifacts
+    archive <name>     Archive a project (--reason 'text')
+    merge <src> --into <tgt>  Merge source project into target
+    fork <parent> --into <child1> <child2>  Fork a project
+    summary <name>     Detailed project summary
+  maintenance          DB maintenance commands
+    --vacuum           VACUUM ANALYZE core tables
+    --detect-stale     Detect & demote stale memories
+    --stats            Show table counts, index sizes, staleness
+  migrate              Run database migrations
+  help, --help, -h     Show this help message
 ```
 
 ## MCP Tools (15)
@@ -103,18 +132,18 @@ When deployed as an MCP server, BrainCore exposes:
 ```
 Data Sources          BrainCore Pipeline              Knowledge Store
 ─────────────        ────────────────────           ─────────────────
-Incidents    ──┐     ┌─ Scanner ──────────┐         PostgreSQL + pgvector
-Sessions     ──┤     │  Archive           │         ├─ preserve.artifact
-Discord      ──┼────▶│  Deterministic     │────────▶├─ preserve.fact
-Telegram     ──┤     │  Semantic (LLM)    │         ├─ preserve.memory
-Grafana      ──┤     │  Quality Gate      │         ├─ preserve.episode
-Codex        ──┘     │  Consolidate       │         ├─ preserve.entity
-                     │  Publish           │         └─ preserve.segment
+Incidents    ──┐     ┌─ Archive ──────────┐         PostgreSQL + pgvector
+Sessions     ──┤     │  Deterministic     │         ├─ preserve.artifact
+Discord      ──┼────▶│  Semantic (LLM)    │────────▶├─ preserve.fact
+Telegram     ──┤     │  Quality Gate      │         ├─ preserve.memory
+Grafana      ──┤     │  Consolidate       │         ├─ preserve.episode
+Codex        ──┘     │  Publish           │         ├─ preserve.entity
+                     │                    │         └─ preserve.segment
                      └────────────────────┘
                             │                       MCP Server
                      ┌──────┴───────┐               ├─ Hybrid retrieval
                      │ Nightly Cron │               ├─ State-at-time
-                     │ (19 steps)   │               ├─ Timeline
+                     │ (parallel)   │               ├─ Timeline
                      └──────────────┘               └─ Provenance
 ```
 

@@ -10,14 +10,25 @@
 ## Quick Setup with Docker
 
 ```bash
-# Start PostgreSQL with pgvector
+# Start PostgreSQL with pgvector (uses credentials from examples/docker-compose.yml)
 docker compose -f examples/docker-compose.yml up -d
 
 # Wait for PostgreSQL to be ready
 sleep 5
 
-# Export your connection string (match the docker-compose values)
-export BRAINCORE_POSTGRES_DSN="$BRAINCORE_POSTGRES_DSN"
+# Copy .env.example and edit BRAINCORE_POSTGRES_DSN to match the
+# docker-compose POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB values.
+# The expected connection string format is a standard libpq URI:
+#
+#   $SCHEME://$USER:$PASSWORD@$HOST:$PORT/$DATABASE
+#
+# where $SCHEME is postgresql (see .env.example for a complete template
+# and all other supported variables).
+cp .env.example .env
+$EDITOR .env
+
+# Source the .env so BRAINCORE_POSTGRES_DSN is available to psql in this shell
+set -a && . ./.env && set +a
 
 # Initialize schema
 psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql

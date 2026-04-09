@@ -19,6 +19,55 @@ function hasFlag(name: string): boolean {
   return args.includes(`--${name}`);
 }
 
+function printUsage(): void {
+  console.log("Usage: bun src/cli.ts <command> [options]");
+  console.log("");
+  console.log("Commands:");
+  console.log("  extract            Extract knowledge from incidents/sessions/PAI");
+  console.log("    --incident <path>  Extract a single incident");
+  console.log("    --session <path>   Extract a Claude session (JSONL)");
+  console.log("    --pai-memory       Extract PAI AUTO memory files");
+  console.log("    --codex-history    Extract Codex CLI history + sessions");
+  console.log("    --codex-shared     Extract CODEX_SHARED memory structure");
+  console.log("    --discord          Extract Discord digest micro_summaries");
+  console.log("    --telegram         Extract Telegram chat messages");
+  console.log("    --grafana          Extract Grafana dashboards/alerts");
+  console.log("    --pending          Extract all pending artifacts");
+  console.log("    --use-claude       Escalate to Claude CLI for semantic");
+  console.log("    --skip-semantic    Skip LLM extraction, deterministic only");
+  console.log("    --dry-run          Print results without database writes");
+  console.log("  archive --pending    Archive discovered artifacts");
+  console.log("  consolidate --delta  Compile patterns and playbooks");
+  console.log("  publish-notes        Publish memories to markdown");
+  console.log("    --changed          Only publish changed memories");
+  console.log("    --scope <path>     Filter by scope path prefix");
+  console.log("  eval                 Run extraction evaluation");
+  console.log("    --run              Run eval on all gold set cases");
+  console.log("    --report           Print last eval report");
+  console.log("  gate-check           Report blocked/failed artifacts");
+  console.log("  health-check         Check vLLM endpoint health");
+  console.log("  project              Project lifecycle commands");
+  console.log("    list               Show projects with artifact/fact counts");
+  console.log("    tag --retag-all    Re-run project resolution on all artifacts");
+  console.log("    archive <name>     Archive a project (--reason 'text')");
+  console.log("    merge <src> --into <tgt>  Merge source project into target");
+  console.log("    fork <parent> --into <child1> <child2>  Fork a project");
+  console.log("    summary <name>     Detailed project summary");
+  console.log("  maintenance          DB maintenance commands");
+  console.log("    --vacuum           VACUUM ANALYZE core tables");
+  console.log("    --detect-stale     Detect & demote stale memories");
+  console.log("    --stats            Show table counts, index sizes, staleness");
+  console.log("  migrate              Run database migrations");
+  console.log("  help, --help, -h     Show this help message");
+}
+
+// Handle help flags explicitly BEFORE the commands[] dispatch so they never
+// touch the database proxy or fall through the unknown-command error branch.
+if (!command || command === "--help" || command === "-h" || command === "help") {
+  printUsage();
+  process.exit(0);
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 const commands: Record<string, () => Promise<void>> = {
@@ -1232,43 +1281,10 @@ async function extractDiscord(dryRun?: boolean): Promise<void> {
 }
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
-if (!command || !commands[command]) {
-  console.log("Usage: bun src/cli.ts <command> [options]");
-  console.log("");
-  console.log("Commands:");
-  console.log("  extract          Extract knowledge from incidents/sessions/PAI");
-  console.log("    --incident <path>  Extract a single incident");
-  console.log("    --session <path>   Extract a Claude session (JSONL)");
-  console.log("    --pai-memory       Extract PAI AUTO memory files");
-  console.log("    --codex-history    Extract Codex CLI history + sessions");
-  console.log("    --codex-shared     Extract CODEX_SHARED memory structure");
-  console.log("    --discord           Extract Discord digest micro_summaries");
-  console.log("    --pending          Extract all pending artifacts");
-  console.log("    --use-claude       Escalate to Claude CLI for semantic");
-  console.log("    --skip-semantic    Skip LLM extraction, deterministic only");
-  console.log("    --dry-run          Print results without database writes");
-  console.log("  archive --pending  Archive discovered artifacts");
-  console.log("  consolidate --delta  Compile patterns and playbooks");
-  console.log("  publish-notes      Publish memories to markdown");
-  console.log("    --changed          Only publish changed memories");
-  console.log("    --scope <path>     Filter by scope path prefix");
-  console.log("  eval               Run extraction evaluation");
-  console.log("    --run              Run eval on all gold set cases");
-  console.log("    --report           Print last eval report");
-  console.log("  gate-check         Report blocked/failed artifacts");
-  console.log("  health-check       Check vLLM endpoint health");
-  console.log("  project            Project lifecycle commands");
-  console.log("    list               Show projects with artifact/fact counts");
-  console.log("    tag --retag-all    Re-run project resolution on all artifacts");
-  console.log("    archive <name>     Archive a project (--reason 'text')");
-  console.log("    merge <src> --into <tgt>  Merge source project into target");
-  console.log("    fork <parent> --into <child1> <child2>  Fork a project");
-  console.log("    summary <name>     Detailed project summary");
-  console.log("  maintenance        DB maintenance commands");
-  console.log("    --vacuum           VACUUM ANALYZE core tables");
-  console.log("    --detect-stale     Detect & demote stale memories");
-  console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate            Run database migrations");
+if (!commands[command]) {
+  console.error(`Unknown command: ${command}`);
+  console.error("");
+  printUsage();
   process.exit(1);
 }
 
