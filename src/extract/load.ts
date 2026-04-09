@@ -50,6 +50,31 @@ function factFingerprint(
 }
 
 /**
+ * Compute a fact's priority (1 = highest, 10 = lowest, default 5) based on
+ * the signals available at insert time. Matches the retroactive classification
+ * used by scripts/backfill-priority.py so newly ingested facts rank the same
+ * as existing ones.
+ *
+ * Priority ladder:
+ *   1  milestone facts
+ *   2  facts from critical / P1 episodes
+ *   3  corroborated_llm facts
+ *   4  deterministic facts
+ *   5  default (single_source_llm, lessons, everything else)
+ */
+function computePriority(fact: {
+  is_milestone?: boolean;
+  assertion_class?: string;
+  severity?: string;
+}): number {
+  if (fact.is_milestone) return 1;
+  if (fact.severity === "critical" || fact.severity === "P1") return 2;
+  if (fact.assertion_class === "corroborated_llm") return 3;
+  if (fact.assertion_class === "deterministic") return 4;
+  return 5;
+}
+
+/**
  * Attempt to generate an embedding for text via the local embed service.
  * Returns null if the service is unavailable.
  */
@@ -138,8 +163,8 @@ async function resolveEntity(
   entityType: string,
 ): Promise<string> {
   const [row] = await tx`
-    INSERT INTO preserve.entity (canonical_name, entity_type, first_seen_at, last_seen_at)
-    VALUES (${name}, ${entityType}::preserve.entity_type, now(), now())
+    INSERT INTO preserve.entity (canonical_name, entity_type, first_seen_at, last_seen_at, tenant)
+    VALUES (${name}, ${entityType}::preserve.entity_type, now(), now(), ${config.tenant})
     ON CONFLICT (entity_type, canonical_name) DO UPDATE SET
       last_seen_at = now()
     RETURNING entity_id
@@ -222,7 +247,7 @@ export async function loadExtraction(
       INSERT INTO preserve.episode (
         episode_type, title, scope_path,
         start_at, end_at, severity, outcome, summary,
-        primary_artifact_id
+        primary_artifact_id, tenant
       ) VALUES (
         ${ep.type}, ${ep.title}, ${deterministic.scope_path},
         ${episodeStart},
@@ -230,7 +255,8 @@ export async function loadExtraction(
         ${ep.severity || null},
         ${ep.outcome || null},
         ${ep.summary || null},
-        ${artifactId}::uuid
+        ${artifactId}::uuid,
+        ${config.tenant}
       )
       RETURNING episode_id
     `;
@@ -246,11 +272,11 @@ export async function loadExtraction(
       const [segRow] = await tx`
         INSERT INTO preserve.segment (
           artifact_id, ordinal, section_label, content,
-          line_start, line_end, source_sha256, scope_path
+          line_start, line_end, source_sha256, scope_path, tenant
         ) VALUES (
           ${artifactId}::uuid, ${seg.ordinal}, ${seg.section_label},
           ${seg.content}, ${seg.line_start}, ${seg.line_end},
-          ${segHash}, ${deterministic.scope_path}
+          ${segHash}, ${deterministic.scope_path}, ${config.tenant}
         )
         RETURNING segment_id
       `;
@@ -354,12 +380,16 @@ export async function loadExtraction(
       );
 
       // Use db.json() for proper jsonb serialization (avoids double-encoding)
+      const factPriority = computePriority({
+        assertion_class: fact.assertion_class,
+        severity: deterministic.episode?.severity,
+      });
       const [factRow] = await tx`
         INSERT INTO preserve.fact (
           subject_entity_id, predicate, object_entity_id, object_value,
           fact_kind, assertion_class, confidence, created_run_id,
           valid_from, valid_to, canonical_fingerprint, scope_path,
-          episode_id
+          episode_id, priority, tenant
         ) VALUES (
           ${subjectEntityId}::uuid, ${fact.predicate},
           ${objectEntityId}::uuid,
@@ -372,7 +402,9 @@ export async function loadExtraction(
           ${factValidTo},
           ${fingerprint},
           ${deterministic.scope_path},
-          ${episodeId}::uuid
+          ${episodeId}::uuid,
+          ${factPriority},
+          ${config.tenant}
         )
         RETURNING fact_id
       `;
@@ -431,11 +463,15 @@ export async function loadExtraction(
           fact.object_value,
         );
 
+        const semFactPriority = computePriority({
+          assertion_class: "single_source_llm",
+          severity: deterministic.episode?.severity,
+        });
         const [factRow] = await tx`
           INSERT INTO preserve.fact (
             subject_entity_id, predicate, object_value,
             fact_kind, assertion_class, confidence, created_run_id,
-            canonical_fingerprint, scope_path, episode_id
+            canonical_fingerprint, scope_path, episode_id, priority, tenant
           ) VALUES (
             ${subjectEntityId}::uuid, ${fact.predicate},
             ${db.json(fact.object_value)},
@@ -445,7 +481,9 @@ export async function loadExtraction(
             ${runId}::uuid,
             ${fingerprint},
             ${deterministic.scope_path},
-            ${episodeId}::uuid
+            ${episodeId}::uuid,
+            ${semFactPriority},
+            ${config.tenant}
           )
           RETURNING fact_id
         `;
@@ -496,11 +534,15 @@ export async function loadExtraction(
           lesson.description,
         );
 
+        const lessonPriority = computePriority({
+          assertion_class: "single_source_llm",
+          severity: deterministic.episode?.severity,
+        });
         const [factRow] = await tx`
           INSERT INTO preserve.fact (
             subject_entity_id, predicate, object_value,
             fact_kind, assertion_class, confidence, created_run_id,
-            canonical_fingerprint, scope_path, episode_id
+            canonical_fingerprint, scope_path, episode_id, priority, tenant
           ) VALUES (
             ${systemEntityId}::uuid, 'lesson_learned',
             ${db.json(lesson.description)},
@@ -510,7 +552,9 @@ export async function loadExtraction(
             ${runId}::uuid,
             ${fingerprint},
             ${deterministic.scope_path},
-            ${episodeId}::uuid
+            ${episodeId}::uuid,
+            ${lessonPriority},
+            ${config.tenant}
           )
           RETURNING fact_id
         `;

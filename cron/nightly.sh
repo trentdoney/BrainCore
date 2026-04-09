@@ -1,120 +1,129 @@
 #!/bin/bash
-# BrainCore nightly preservation pipeline — fully automated
-# Schedule: 40 2 * * * (02:40 daily)
-set -euo pipefail
+# BrainCore Nightly Pipeline v2 — Parallel execution with failure isolation
+set -uo pipefail  # NO -e — we want partial success
 
-# Source environment
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BRAINCORE="${SCRIPT_DIR}/.."
-LOG="${BRAINCORE}/logs/braincore-nightly.log"
+BRAINCORE="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env if present
-if [ -f "${BRAINCORE}/.env" ]; then
-  set -a; source "${BRAINCORE}/.env"; set +a
+# Source .env if present
+if [ -f "$BRAINCORE/.env" ]; then
+  set -a
+  source "$BRAINCORE/.env"
+  set +a
 fi
 
-TELEGRAM_BOT_TOKEN="${BRAINCORE_TELEGRAM_BOT_TOKEN:-}"
-TELEGRAM_CHAT_ID="${BRAINCORE_TELEGRAM_CHAT_ID:-}"
+LOG_DIR="${BRAINCORE_LOG_DIR:-$BRAINCORE/logs}"
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/nightly-$(date +%Y%m%d).log"
+FAIL_FLAGS="$LOG_DIR/nightly-failures-$(date +%Y%m%d)"
+: > "$FAIL_FLAGS"
 
-log() { echo "[$(date -Iseconds)] $*" >> "$LOG"; }
+# Cron overlap protection via flock
+exec 200>"$BRAINCORE/.nightly.lock"
+if ! flock -n 200; then
+  echo "[$(date -Iseconds)] Another nightly run is in progress — exiting" | tee -a "$LOG"
+  exit 0
+fi
+
+log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
+
 alert() {
   local msg="$1"
   log "ALERT: $msg"
-  if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-      -d chat_id="$TELEGRAM_CHAT_ID" \
+  if [ -n "${BRAINCORE_TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${BRAINCORE_TELEGRAM_CHAT_ID:-}" ]; then
+    curl -sf "https://api.telegram.org/bot${BRAINCORE_TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d chat_id="$BRAINCORE_TELEGRAM_CHAT_ID" \
       -d text="BrainCore: $msg" > /dev/null 2>&1 || true
   fi
 }
 
-# Ensure log directory exists
-mkdir -p "$(dirname "$LOG")"
+run_step() {
+  local name="$1"; shift
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "DRY: would run [$name]: $*"
+    return 0
+  fi
+  log "START: $name"
+  if "$@" >> "$LOG" 2>&1; then
+    log "OK: $name"
+  else
+    log "FAIL: $name"
+    echo "$name" >> "$FAIL_FLAGS"
+  fi
+}
 
-log "=== BrainCore nightly pipeline starting ==="
-PIPELINE_START=$(date +%s)
-FAILURES=0
+# Python interpreter (override via BRAINCORE_PYTHON env var)
+PYTHON="${BRAINCORE_PYTHON:-python3}"
 
-# -- 1. Scan for new artifacts --
-log "Phase 1: scan"
-cd "$BRAINCORE" && bun src/cli.ts scan --lead-window 14 >> "$LOG" 2>&1 \
-  || { alert "Scan failed"; ((FAILURES++)) || true; }
+cd "$BRAINCORE"
+log "=== BrainCore nightly pipeline v2 starting ==="
+log "Mode: ${DRY_RUN:+DRY_RUN}${DRY_RUN:-LIVE}"
 
-# -- 2. Archive pending artifacts --
-log "Phase 2: archive"
-cd "$BRAINCORE" && bun src/cli.ts archive --pending >> "$LOG" 2>&1 \
-  || { alert "Archive failed"; ((FAILURES++)) || true; }
-
-# -- 3. Extract (deterministic + semantic via vLLM or Claude CLI fallback) --
-log "Phase 3: extract"
-cd "$BRAINCORE" && bun src/cli.ts extract --pending >> "$LOG" 2>&1 \
-  || { alert "Extraction failed"; ((FAILURES++)) || true; }
-
-# -- 4. Extract Codex data --
-log "Phase 4: codex-extract"
-cd "$BRAINCORE" && bun src/cli.ts extract --codex-shared >> "$LOG" 2>&1 \
-  || { alert "Codex shared extraction failed"; ((FAILURES++)) || true; }
-cd "$BRAINCORE" && bun src/cli.ts extract --codex-history >> "$LOG" 2>&1 \
-  || { alert "Codex history extraction failed"; ((FAILURES++)) || true; }
-
-# -- 5. Discord digest extraction --
-log "Phase 5: discord-extract"
-cd "$BRAINCORE" && bun src/cli.ts extract --discord >> "$LOG" 2>&1 \
-  || { alert "Discord extraction failed"; ((FAILURES++)) || true; }
-
-# -- 6. Telegram chat extraction --
-log "Phase 6: telegram-extract"
-cd "$BRAINCORE" && bun src/cli.ts extract --telegram >> "$LOG" 2>&1 \
-  || { alert "Telegram extraction failed"; ((FAILURES++)) || true; }
-
-# -- 7. Grafana alert extraction --
-log "Phase 7: grafana-extract"
-cd "$BRAINCORE" && bun src/cli.ts extract --grafana >> "$LOG" 2>&1 \
-  || { alert "Grafana extraction failed"; ((FAILURES++)) || true; }
-
-# -- 8. Backfill embeddings --
-log "Phase 8: embeddings"
-python3 "${BRAINCORE}/scripts/backfill-embeddings.py" >> "$LOG" 2>&1 \
-  || { alert "Embedding backfill failed"; ((FAILURES++)) || true; }
-
-# -- 9. Project re-tag --
-log "Phase 9: project-tag"
-cd "$BRAINCORE" && bun src/cli.ts project tag --retag-all >> "$LOG" 2>&1 \
-  || log "Project re-tag skipped or failed (non-critical)"
-
-# -- 10. Consolidate patterns/playbooks --
-log "Phase 10: consolidate"
-cd "$BRAINCORE" && bun src/cli.ts consolidate --delta >> "$LOG" 2>&1 \
-  || { alert "Consolidation failed"; ((FAILURES++)) || true; }
-
-# -- 11. Publish notes --
-log "Phase 11: publish"
-cd "$BRAINCORE" && bun src/cli.ts publish-notes --changed >> "$LOG" 2>&1 \
-  || { alert "Publish notes failed"; ((FAILURES++)) || true; }
-
-# -- 12. Gate check (alert blocked artifacts) --
-log "Phase 12: gate-check"
-cd "$BRAINCORE" && bun src/cli.ts gate-check >> "$LOG" 2>&1 \
-  || { alert "Gate check failed"; ((FAILURES++)) || true; }
-
-# -- 13. Weekly maintenance (Sundays) --
-if [ "$(date +%u)" = "7" ]; then
-  log "Phase 13: weekly-vacuum"
-  cd "$BRAINCORE" && bun src/cli.ts maintenance --vacuum >> "$LOG" 2>&1 \
-    || { alert "Weekly VACUUM failed"; ((FAILURES++)) || true; }
-
-  log "Phase 13b: staleness-detection"
-  cd "$BRAINCORE" && bun src/cli.ts maintenance --detect-stale >> "$LOG" 2>&1 \
-    || { alert "Stale detection failed"; ((FAILURES++)) || true; }
-fi
-
-# -- Final notification --
-PIPELINE_END=$(date +%s)
-DURATION=$(( PIPELINE_END - PIPELINE_START ))
-
-if [ "$FAILURES" -gt 0 ]; then
-  alert "Nightly pipeline complete with ${FAILURES} failure(s). Duration: ${DURATION}s"
+# Group A: Independent ingestion (parallel)
+log "Group A: scan + codex-sync (parallel)"
+run_step "scan" bun src/cli.ts scan --lead-window 14 &
+if [ -n "${BRAINCORE_CODEX_SYNC_SRC:-}" ] && [ -n "${BRAINCORE_CODEX_SYNC_DEST:-}" ]; then
+  run_step "codex-sync" rsync -a "$BRAINCORE_CODEX_SYNC_SRC" "$BRAINCORE_CODEX_SYNC_DEST" &
 else
-  alert "Nightly pipeline complete. Duration: ${DURATION}s"
+  log "SKIP: codex-sync (BRAINCORE_CODEX_SYNC_SRC/DEST not set)"
+fi
+wait
+log "Group A complete"
+
+# Group B: Archive + replicate (sequential)
+log "Group B: archive + replicate (sequential)"
+run_step "archive" bun src/cli.ts archive --pending
+run_step "replicate" bun src/cli.ts replicate
+
+# Group C: Parallel extraction from all sources
+log "Group C: extraction (parallel)"
+run_step "extract-pending" bun src/cli.ts extract --pending &
+run_step "extract-codex-shared" bun src/cli.ts extract --codex-shared &
+run_step "extract-codex-history" bun src/cli.ts extract --codex-history &
+run_step "extract-discord" bun src/cli.ts extract --discord &
+run_step "extract-telegram" bun src/cli.ts extract --telegram &
+run_step "extract-grafana" bun src/cli.ts extract --grafana &
+wait
+log "Group C complete"
+
+# Group D: Post-processing (sequential dependencies)
+log "Group D: post-processing (sequential)"
+run_step "embeddings" $PYTHON scripts/backfill-embeddings.py
+run_step "project-tag" bun src/cli.ts project tag --retag-all
+run_step "consolidate" bun src/cli.ts consolidate --delta
+run_step "publish" bun src/cli.ts publish-notes --changed
+
+# Weekly maintenance (Sundays)
+if [ "$(date +%u)" = "7" ]; then
+  log "Weekly maintenance"
+  run_step "vacuum" bun src/cli.ts maintenance --vacuum
+  run_step "stale-detect" bun src/cli.ts consolidate --detect-stale
 fi
 
-log "=== BrainCore nightly pipeline complete (${FAILURES} failures, ${DURATION}s) ==="
+# Monthly reindex (1st of month)
+if [ "$(date +%d)" = "01" ]; then
+  log "Monthly reindex"
+  run_step "reindex" $PYTHON scripts/reindex-vectors.py
+fi
+
+# Final gate check
+run_step "gate-check" bun src/cli.ts gate-check
+
+# Summary
+FAIL_COUNT=$(wc -l < "$FAIL_FLAGS" 2>/dev/null || echo 0)
+FACT_COUNT=$($PYTHON -c "
+import psycopg, os
+c = psycopg.connect(os.environ['BRAINCORE_POSTGRES_DSN'])
+cur = c.cursor()
+cur.execute('SELECT count(*) FROM preserve.fact')
+print(cur.fetchone()[0])
+c.close()
+" 2>/dev/null || echo '?')
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+  FAILED_STEPS=$(tr '\n' ',' < "$FAIL_FLAGS" | sed 's/,$//')
+  alert "Nightly complete with $FAIL_COUNT failures: $FAILED_STEPS. Facts: $FACT_COUNT"
+else
+  alert "Nightly complete cleanly. Facts: $FACT_COUNT"
+fi
+
+log "=== BrainCore nightly pipeline complete ==="
