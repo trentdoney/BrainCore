@@ -2,6 +2,24 @@
 
 All notable changes to BrainCore are documented in this file. This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] — 2026-04-10
+
+Dependency maintenance release. This version updates Zod to v4 and locks Bun dependency resolution for reproducible CI installs.
+
+### Added
+- `bun.lock` is now committed so `bun install --frozen-lockfile` resolves dependencies reproducibly in local and GitHub Actions environments.
+- Targeted Bun tests for LLM extraction validation under Zod v4.
+
+### Changed
+- `zod` upgraded from v3 to v4.
+- `FactSchema.object_value` now declares explicit string keys for record-shaped fact values, matching Zod v4's `z.record(keySchema, valueSchema)` signature.
+
+### Fixed
+- TypeScript validation now passes with Zod v4 for object-valued semantic facts.
+
+### Removed
+- None.
+
 ## [1.1.4] — 2026-04-09
 
 Public launch hardening release. This version makes the repository self-contained for first-time setup, aligns the open-source schema with the shipped CLI and evaluation flows, and prepares the repo for a clean public release.

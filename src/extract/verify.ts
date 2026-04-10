@@ -9,7 +9,12 @@ export const FactSchema = z.object({
   subject: z.string().min(1),
   predicate: z.string().min(1),
   object_value: z
-    .union([z.string(), z.number(), z.boolean(), z.record(z.unknown())])
+    .union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.record(z.string(), z.unknown()),
+    ])
     .nullable(),
   fact_kind: z.enum([
     "state",
