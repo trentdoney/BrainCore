@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/ba69fde9-c28d-42f0-a61b-2aa853e5db1f" alt="logo-square" />
+  <img src="assets/logo-square.jpg" alt="BrainCore logo" />
   <h1>BrainCore</h1>
   <p>
     <strong>Autonomous memory system for AI infrastructure.</strong>
@@ -41,7 +41,7 @@ BrainCore watches your infrastructure and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid retrieval (SQL + full-text + vector + temporal) with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/7fde9c26-dfab-42d9-bc3a-8ea0b81fdb77" alt="BrainCore-Github-v1-results" />
+  <img src="assets/dashboard.png" alt="BrainCore results dashboard" />
 </p>
 
 ## Features
@@ -213,10 +213,10 @@ branding costume.
   without any one stream pretending to be the whole sky.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/91055a63-4a9c-4a8f-b9c3-f20f96007baa" alt="BrainCore-Architecture" />
+  <img src="assets/architecture.jpg" alt="BrainCore architecture" />
 </p>
 
-## Benchmarks
+## Benchmark Methodology
 
 BrainCore keeps smoke-regression and production-corpus measurements
 separate on purpose.

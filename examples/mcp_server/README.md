@@ -4,14 +4,14 @@ This directory contains a minimal reference stdio MCP server built on the
 BrainCore retrieval library. It exposes exactly one tool, `memory-search`,
 wired directly to the single public function in `mcp/memory_search.py`. It
 is intentionally small: one tool, one library function, one transport. It
-is not the same server that runs in downstream deployments such as
-OpsVault, which expose a larger toolset tailored for that project.
+is not the same server shape you would use in a larger downstream
+deployment with additional tenant-aware or project-specific tools.
 
 ## Prerequisites
 
 - Python 3.10 or newer
-- A running BrainCore PostgreSQL database with migrations `001` through
-  `008` applied against the `preserve` schema
+- A running BrainCore PostgreSQL database with the full migration set
+  applied against the `preserve` schema
 - The `BRAINCORE_POSTGRES_DSN` environment variable set to a libpq DSN
   pointing at that database, for example:
 
@@ -98,14 +98,13 @@ Example call, as seen by the tool:
 
 ## What this example does NOT include
 
-The full OpsVault deployment at `opsvault-search/` exposes a larger
-toolset tailored for that use case. This example is intentionally
-minimal: one tool, one library function, stdio transport. If you need
-additional tools (state-at, timeline, explain, embed, and so on), build
-them in your own server on top of the `mcp.memory_search` and
-`mcp.memory_models` modules. The connection pool in this example is
-created lazily on the first tool call, which keeps the module importable
-in environments where `BRAINCORE_POSTGRES_DSN` is not set.
+This example is intentionally minimal: one tool, one library function,
+stdio transport. If you need additional tools (state-at, timeline,
+explain, embed, and so on), build them in your own server on top of the
+`mcp.memory_search` and `mcp.memory_models` modules. The connection pool
+in this example is created lazily on the first tool call, which keeps
+the module importable in environments where `BRAINCORE_POSTGRES_DSN` is
+not set.
 
 ## PostgreSQL 15+ (tested on 16)
 
