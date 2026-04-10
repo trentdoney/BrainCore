@@ -404,13 +404,15 @@ def run(no_seed: bool = False, force_seed: bool = False) -> dict[str, Any]:
         "fixture": "benchmarks/seed_smoke.sql",
         "framing_note": (
             "This JSON is a pipeline-regression smoke baseline produced against "
-            "the synthetic seed_smoke.sql fixture (9 facts / 12 entities / 15 "
-            "memories tuned to the 12 canonical queries). Use these numbers as "
-            "a regression gate on the retrieval pipeline wiring, NOT as a "
-            "representative measurement of BrainCore's retrieval quality on "
-            "arbitrary workloads. Do not cite relevance_at_10 (or any latency "
-            "value) as a performance claim — the public README's headline "
-            "retrieval metrics come from a separate production-corpus benchmark."
+            f"the synthetic seed_smoke.sql fixture ({corpus['facts']} facts / "
+            f"{corpus['entities']} entities / {corpus['published_memories']} "
+            f"memories tuned to the {len(queries)} canonical queries). Use "
+            "these numbers as a regression gate on the retrieval pipeline "
+            "wiring, NOT as a representative measurement of BrainCore's "
+            "retrieval quality on arbitrary workloads. Do not cite "
+            "relevance_at_10 (or any latency value) as a performance claim — "
+            "the public README's headline retrieval metrics come from a "
+            "separate production-corpus benchmark."
         ),
         "corpus": corpus,
         "latency_ms": {

@@ -4,7 +4,6 @@ import { dirname, join } from "path";
 export const MIGRATION_FILES = [
   "001_preserve_schema.sql",
   "003_seed_entities.sql",
-  "004_seed_projects.example.sql",
   "005_priority_tenant.sql",
   "006_source_type_values.sql",
   "007_eval_run.sql",

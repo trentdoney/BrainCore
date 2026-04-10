@@ -18,7 +18,6 @@ SQL_DIR = ROOT / "sql"
 PRE_REPAIR_MIGRATIONS = [
     "001_preserve_schema.sql",
     "003_seed_entities.sql",
-    "004_seed_projects.example.sql",
     "005_priority_tenant.sql",
     "006_source_type_values.sql",
     "007_eval_run.sql",
@@ -100,12 +99,9 @@ def test_eval_run_table_exists():
 
 
 def test_fourteen_preserve_tables_exist():
-    # Phase 0 reached 13 preserve tables (001 baseline 11 + patched 004
-    # project_service_map + 007 eval_run). Phase 3 adds migration 008
-    # (eval_case) which closes BL-12 and brings the running total to 14.
-    # Stream A's original 13-table assertion (renamed from
-    # test_thirteen_preserve_tables_exist) is now historical — every fresh
-    # install runs 001-008 and ends up with 14 preserve tables.
+    # Fresh installs now get the full 14-table preserve schema directly
+    # from the base schema plus eval migrations. Example project seeds
+    # remain opt-in and are no longer part of the default migration path.
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM pg_tables WHERE schemaname='preserve'")
         count = cur.fetchone()[0]
