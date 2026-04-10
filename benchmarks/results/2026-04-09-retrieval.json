@@ -10,9 +10,9 @@
     "published_memories": 15
   },
   "latency_ms": {
-    "p50": 1.638,
-    "p95": 2.826,
-    "p99": 10.673
+    "p50": 1.593,
+    "p95": 2.068,
+    "p99": 12.157
   },
   "quality": {
     "relevance_at_10": 0.4167,
@@ -30,7 +30,7 @@
     "vector_disabled": true
   },
   "metadata": {
-    "generated_at": "2026-04-10T12:15:02.046573+00:00",
+    "generated_at": "2026-04-10T12:27:48.095216+00:00",
     "python": "3.12.3",
     "dsn_host": "localhost"
   }

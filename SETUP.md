@@ -14,7 +14,7 @@
 bun install
 python -m venv .venv
 source .venv/bin/activate
-pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests
+pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests pgvector pydantic 'mcp[cli]>=1.0'
 
 # Start PostgreSQL with pgvector (uses credentials from examples/docker-compose.yml)
 docker compose -f examples/docker-compose.yml up -d
@@ -62,7 +62,7 @@ Then set `BRAINCORE_POSTGRES_DSN` in your environment (see `.env.example` for th
 bun install
 python -m venv .venv
 source .venv/bin/activate
-pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests
+pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests pgvector pydantic 'mcp[cli]>=1.0'
 bun src/cli.ts migrate
 ```
 

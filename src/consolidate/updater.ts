@@ -2,7 +2,7 @@
  * updater.ts — Update preserve.memory from pattern candidates.
  * Handles ADD, UPDATE, and RETIRE lifecycle operations with a
  * 7-day stability window to prevent premature retirement.
- * C5: Skip retirement if any supporting fact has is_milestone = TRUE
+ * C5: Skip retirement if any supporting fact has priority = 1
  * E2: Staleness detection for memories unsupported for 6+ months
  */
 
@@ -134,7 +134,7 @@ export async function updateMemories(
     }
 
     // RETIRE: memories where contradiction_count > support_count (7-day stability)
-    // C5: Skip retirement if any supporting fact has is_milestone = TRUE
+    // C5: Skip retirement if any supporting fact has priority = 1
     const retireResult = await tx`
       UPDATE preserve.memory
       SET lifecycle_state = 'retired'::preserve.lifecycle_state,
@@ -147,7 +147,7 @@ export async function updateMemories(
           SELECT 1 FROM preserve.memory_support ms
           JOIN preserve.fact f ON f.fact_id = ms.fact_id
           WHERE ms.memory_id = preserve.memory.memory_id
-            AND f.is_milestone = TRUE
+            AND f.priority = 1
         )
       RETURNING memory_id
     `;
@@ -170,7 +170,7 @@ export async function detectStale(sql: postgres.Sql): Promise<number> {
     AND NOT EXISTS (
       SELECT 1 FROM preserve.memory_support ms
       JOIN preserve.fact f ON f.fact_id = ms.fact_id
-      WHERE ms.memory_id = preserve.memory.memory_id AND f.is_milestone = TRUE
+      WHERE ms.memory_id = preserve.memory.memory_id AND f.priority = 1
     )
     RETURNING memory_id
   `;

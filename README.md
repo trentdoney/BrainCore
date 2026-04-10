@@ -1,8 +1,11 @@
 <div align="center">
-  <img src="assets/logo-square.jpg" alt="BrainCore logo" width="160" height="160" />
+  <img src="https://github.com/user-attachments/assets/ba69fde9-c28d-42f0-a61b-2aa853e5db1f" alt="logo-square" />
   <h1>BrainCore</h1>
   <p>
-    <strong>BrainCore is a PostgreSQL/pgvector memory system for operational knowledge, with a Bun write layer, a Python retrieval library, a preserve schema, and 4-stream hybrid retrieval.</strong>
+    <strong>Autonomous memory system for AI infrastructure.</strong>
+  </p>
+  <p>
+    BrainCore extracts, preserves, and retrieves operational knowledge from incidents, coding sessions, chat messages, and monitoring data, building a persistent knowledge graph that AI agents can query.
   </p>
   <p>
     <a href="https://github.com/trentdoney/BrainCore/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/trentdoney/BrainCore" /></a>
@@ -15,42 +18,43 @@
     <strong>Live deployment:</strong> 26,966 facts · P50 71.6 ms · P95 85.2 ms · evidence grounding 98.52%
   </p>
   <p>
+    <a href="#what-it-does">What It Does</a> ·
+    <a href="#features">Features</a> ·
     <a href="#quick-start">Quick Start</a> ·
     <a href="#what-ships-in-this-repo">What Ships</a> ·
-    <a href="#how-it-works">How It Works</a> ·
+    <a href="#architecture">Architecture</a> ·
     <a href="#benchmarks">Benchmarks</a> ·
     <a href="#mcp-integration">MCP Integration</a> ·
     <a href="#configuration">Configuration</a>
   </p>
 </div>
 
-## What BrainCore Is
+## What It Does
 
-BrainCore turns operational sprawl into queryable memory. It takes the
-things that usually vanish after the incident ends or the session closes
-and preserves them as a knowledge graph with provenance, time windows,
-trust classes, and retrieval paths that an agent can actually use.
+BrainCore watches your infrastructure and automatically:
 
-At a high level, BrainCore gives you:
+1. **Archives** incidents, sessions, and artifacts with integrity checksums
+2. **Extracts** structured facts using deterministic parsing plus LLM semantic analysis
+3. **Consolidates** recurring patterns into actionable memories and playbooks
+4. **Publishes** knowledge as searchable, queryable data
 
-- A Bun CLI for archiving artifacts, extracting facts, consolidating
-  patterns, publishing notes, and running lifecycle maintenance.
-- A Python retrieval library that searches the preserved graph through
-  structured SQL, full-text search, vector similarity, and temporal
-  expansion.
-- A `14-table preserve schema` that keeps artifacts, evidence,
-  entities, facts, memories, review state, and evaluation data in one
-  PostgreSQL-backed system.
+All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid retrieval (SQL + full-text + vector + temporal) with Reciprocal Rank Fusion.
 
-BrainCore is not a hosted SaaS, not a generic chat-memory wrapper, and
-not a bundle of MCP marketing claims. The repo ships the write path, the
-retrieval library, the schema, the benchmark harness, the nightly
-pipeline, and a minimal example MCP server. If you want a bigger MCP
-tool surface, you build it on top of the same retrieval library.
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/7fde9c26-dfab-42d9-bc3a-8ea0b81fdb77" alt="BrainCore-Github-v1-results" />
+</p>
 
-The repo currently ships `7 deterministic parsers` for incident and
-session-oriented sources, plus a semantic extraction path that can use
-local vLLM endpoints and fall back to Claude CLI when needed.
+## Features
+
+- **7 data source parsers**: OpsVault incidents, Claude Code sessions, Codex sessions, Discord digests, Telegram chats, Grafana alerts, PAI memory
+- **4-stream hybrid retrieval**: Structured SQL + FTS + vector similarity + temporal expansion, fused with RRF (`k=60`)
+- **Trust classes**: `deterministic`, `corroborated_llm`, `single_source_llm`, `human_curated`
+- **Project scoping**: Facts, memories, and episodes auto-tagged to projects via service mapping
+- **Quality gate**: SHA256 fingerprint dedup, secret redaction, and assertion-class validation
+- **Local-first LLM**: Uses vLLM (OpenAI-compatible) with automatic Claude CLI fallback
+- **Parallel nightly pipeline**: Automated archive-extract-consolidate-publish cycle with parallel extractors and health gating
+- **Eval framework**: Gold-set benchmark with precision, recall, and evidence grounding metrics
+- **MCP-ready retrieval layer**: Python retrieval library plus a minimal FastMCP example server for downstream tool exposure
 
 ## Quick Start
 
@@ -75,7 +79,7 @@ The fastest honest way to try BrainCore on a fresh clone is:
 bun install
 python -m venv .venv
 source .venv/bin/activate
-pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests
+pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests pgvector pydantic 'mcp[cli]>=1.0'
 ```
 
 ### 2. Start PostgreSQL with pgvector
@@ -191,7 +195,7 @@ What does **not** ship:
 - The larger downstream OpsVault MCP deployment
 - A Docker image or GHCR publish flow
 
-## How It Works
+## Architecture
 
 BrainCore uses the observatory metaphor as a teaching scaffold, not as a
 branding costume.
@@ -207,6 +211,10 @@ branding costume.
 - The four retrieval streams are the four axes of the fix. BrainCore
   aligns them with RRF so SQL, text, vector, and time each contribute
   without any one stream pretending to be the whole sky.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/91055a63-4a9c-4a8f-b9c3-f20f96007baa" alt="BrainCore-Architecture" />
+</p>
 
 ## Benchmarks
 
@@ -499,7 +507,7 @@ for regression-only relevance checks.
 To inspect or reproduce the benchmark artifacts, start with
 [`benchmarks/README.md`](benchmarks/README.md).
 
-## CLI Reference
+## CLI Commands
 
 The CLI is intentionally narrow and explicit.
 

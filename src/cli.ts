@@ -710,7 +710,7 @@ const commands: Record<string, () => Promise<void>> = {
       const [proj] = await sql`
         SELECT e.entity_id, e.canonical_name, e.attrs,
           (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id) AS facts,
-          (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id AND is_milestone = TRUE) AS milestones,
+          (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id AND priority = 1) AS milestones,
           (SELECT count(*) FROM preserve.memory WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id AND lifecycle_state = 'published') AS memories,
           (SELECT avg(importance_score)::float FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id) AS avg_importance
         FROM preserve.entity e
@@ -842,7 +842,7 @@ const commands: Record<string, () => Promise<void>> = {
 
       // Milestone counts
       const [milestoneCount] = await sql`
-        SELECT count(*) AS n FROM preserve.fact WHERE is_milestone = TRUE
+        SELECT count(*) AS n FROM preserve.fact WHERE tenant = ${config.tenant} AND priority = 1
       `;
       console.log(`[stats] Total milestones: ${milestoneCount.n}`);
 

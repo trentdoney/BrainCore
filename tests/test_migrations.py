@@ -134,6 +134,7 @@ def test_schema_alignment_columns_exist():
               AND (
                 (table_name IN ('artifact', 'fact', 'segment', 'episode', 'memory')
                  AND column_name = 'project_entity_id')
+                OR (table_name = 'fact' AND column_name = 'importance_score')
                 OR (table_name = 'memory' AND column_name = 'last_supported_at')
               )
             ORDER BY table_name, column_name
@@ -144,6 +145,7 @@ def test_schema_alignment_columns_exist():
     expected = {
         ("artifact", "project_entity_id"),
         ("fact", "project_entity_id"),
+        ("fact", "importance_score"),
         ("segment", "project_entity_id"),
         ("episode", "project_entity_id"),
         ("memory", "project_entity_id"),

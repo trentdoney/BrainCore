@@ -1,5 +1,5 @@
 /**
- * archive.ts — Archive a project, retiring its non-milestone memories.
+ * archive.ts — Archive a project, retiring memories without priority-1 support.
  */
 
 import { sql } from "../db";
@@ -33,7 +33,7 @@ export async function archiveProject(projectName: string, reason: string) {
       AND project_entity_id = ${project.entity_id}
   `;
 
-  // 4. Retire non-milestone memories for this project
+  // 4. Retire memories without priority-1 support for this project
   const retired = await sql`
     UPDATE preserve.memory SET lifecycle_state = 'retired'
     WHERE tenant = ${config.tenant}
@@ -43,7 +43,7 @@ export async function archiveProject(projectName: string, reason: string) {
         SELECT 1 FROM preserve.memory_support ms
         JOIN preserve.fact f ON f.fact_id = ms.fact_id
         WHERE ms.memory_id = preserve.memory.memory_id
-          AND f.is_milestone = TRUE
+          AND f.priority = 1
       )
     RETURNING memory_id
   `;

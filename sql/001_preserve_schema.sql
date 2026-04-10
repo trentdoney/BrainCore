@@ -329,6 +329,7 @@ CREATE TABLE IF NOT EXISTS preserve.fact (
     created_run_id          UUID          NOT NULL REFERENCES preserve.extraction_run(run_id),
     scope_path              TEXT,
     priority                INTEGER       NOT NULL DEFAULT 5,
+    importance_score        INTEGER       NOT NULL DEFAULT 0,
     tenant                  TEXT          NOT NULL DEFAULT 'default',
     embedding               vector(384),
     fts                     TSVECTOR GENERATED ALWAYS AS (

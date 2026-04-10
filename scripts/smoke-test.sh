@@ -31,9 +31,8 @@ fi
 
 # 3. TypeScript compilation check
 echo -n "[3/6] TypeScript check... "
-if bun build src/cli.ts --no-bundle --outdir /tmp/braincore-smoke 2>/dev/null; then
+if bunx tsc --noEmit >/dev/null 2>&1; then
   echo "OK"
-  rm -rf /tmp/braincore-smoke
 else
   echo "FAIL (compilation errors)"
   exit 1
@@ -47,15 +46,19 @@ else
   echo "WARN (.env not found — copy .env.example to .env)"
 fi
 
-# 5. Database connection
-echo -n "[5/6] Database... "
-DB_OUTPUT=$(bun src/cli.ts scan --lead-window 0 2>&1 || true)
-if echo "$DB_OUTPUT" | grep -q "Connected to PostgreSQL"; then
+# 5. Database connection + migration path
+echo -n "[5/6] Database + migrations... "
+DB_OUTPUT=$(bun src/cli.ts migrate 2>&1 || true)
+if echo "$DB_OUTPUT" | grep -q "Migrations complete."; then
   echo "OK"
+elif echo "$DB_OUTPUT" | grep -q "Missing required environment variable: BRAINCORE_POSTGRES_DSN"; then
+  echo "SKIP (no BRAINCORE_POSTGRES_DSN configured)"
 elif echo "$DB_OUTPUT" | grep -q "connection failed"; then
   echo "FAIL (check BRAINCORE_POSTGRES_DSN)"
 else
-  echo "SKIP (no .env configured)"
+  echo "FAIL"
+  echo "$DB_OUTPUT"
+  exit 1
 fi
 
 # 6. Health check

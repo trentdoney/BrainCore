@@ -1,6 +1,6 @@
 /**
  * importance.ts — Compute importance scores for facts.
- * Scores based on: milestone status, assertion class, episode severity,
+ * Scores based on: priority-1 milestone status, assertion class, episode severity,
  * and recency. Capped at 100.
  */
 
@@ -9,7 +9,7 @@ import { sql } from "../db";
 export async function computeImportanceScores(): Promise<number> {
   const result = await sql`
     UPDATE preserve.fact f SET importance_score = LEAST(100,
-      CASE WHEN f.is_milestone THEN 50 ELSE 0 END
+      CASE WHEN f.priority = 1 THEN 50 ELSE 0 END
       + CASE WHEN f.assertion_class = 'deterministic' THEN 10
              WHEN f.assertion_class = 'corroborated_llm' THEN 15
              ELSE 0 END

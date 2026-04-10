@@ -25,7 +25,7 @@ Describe the behavior you expected.
 - PostgreSQL version:
 - pgvector version:
 - `BRAINCORE_TENANT`:
-- `BRAINCORE_POSTGRES_DSN` host:
+- Deployment shape (`docker`, local Postgres, remote Postgres):
 - Migration state:
 
 ## Impact

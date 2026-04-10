@@ -1,5 +1,5 @@
 /**
- * fork.ts — Fork a project into child projects, copying milestone facts.
+ * fork.ts — Fork a project into child projects, copying priority-1 milestone facts.
  */
 
 import { sql } from "../db";
@@ -39,7 +39,7 @@ export async function forkProject(parentName: string, childNames: string[]) {
       RETURNING entity_id
     `;
 
-    // Copy milestone facts from parent to child (referencing same facts)
+    // Copy priority-1 milestone facts from parent to child (referencing same facts)
     // We don't duplicate facts; instead, child project gets its own scope
     // but we link the milestone facts by updating project_entity_id for
     // facts that match the child scope
@@ -47,7 +47,7 @@ export async function forkProject(parentName: string, childNames: string[]) {
       SELECT fact_id FROM preserve.fact
       WHERE project_entity_id = ${parent.entity_id}
         AND tenant = ${config.tenant}
-        AND is_milestone = TRUE
+        AND priority = 1
     `;
 
     results.push({

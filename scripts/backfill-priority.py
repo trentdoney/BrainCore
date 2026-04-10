@@ -7,9 +7,9 @@ DSN = os.environ["BRAINCORE_POSTGRES_DSN"]
 conn = psycopg.connect(DSN)
 cur = conn.cursor()
 
-# Priority 1: milestone facts
-cur.execute("UPDATE preserve.fact SET priority = 1 WHERE is_milestone = true AND priority = 5")
-print(f"Priority 1 (milestones): {cur.rowcount}")
+# Priority 1: milestone facts inferred from existing importance scores
+cur.execute("UPDATE preserve.fact SET priority = 1 WHERE importance_score >= 50 AND priority = 5")
+print(f"Priority 1 (importance >= 50): {cur.rowcount}")
 
 # Priority 2: facts from critical-severity episodes
 cur.execute("""

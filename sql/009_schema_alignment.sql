@@ -18,6 +18,9 @@ ALTER TABLE preserve.episode
 ALTER TABLE preserve.fact
     ADD COLUMN IF NOT EXISTS project_entity_id UUID REFERENCES preserve.entity(entity_id);
 
+ALTER TABLE preserve.fact
+    ADD COLUMN IF NOT EXISTS importance_score INTEGER NOT NULL DEFAULT 0;
+
 ALTER TABLE preserve.memory
     ADD COLUMN IF NOT EXISTS project_entity_id UUID REFERENCES preserve.entity(entity_id);
 
