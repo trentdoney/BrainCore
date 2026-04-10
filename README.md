@@ -212,10 +212,6 @@ branding costume.
   aligns them with RRF so SQL, text, vector, and time each contribute
   without any one stream pretending to be the whole sky.
 
-<p align="center">
-  <img src="assets/architecture.jpg" alt="BrainCore architecture" />
-</p>
-
 ## Benchmark Methodology
 
 BrainCore keeps smoke-regression and production-corpus measurements
@@ -458,8 +454,6 @@ failure-tolerant:
 
 The pipeline is designed to prefer partial progress over all-or-nothing
 fragility.
-
-![BrainCore dashboard screenshot — nightly pipeline and preserve-graph observability view.](assets/dashboard.png)
 
 ## Benchmarks
 
