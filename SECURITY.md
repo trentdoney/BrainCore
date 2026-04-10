@@ -1,56 +1,51 @@
 # BrainCore Security
 
-## Secret Redaction
+BrainCore is designed to keep operational history useful without
+exposing private infrastructure by default.
 
-BrainCore includes a built-in secret scanner (`src/security/secret-scanner.ts`) that automatically redacts sensitive content before any text reaches LLM endpoints. Detected patterns include:
+## Secrets and identifiers
 
-- API keys and tokens
-- Passwords and connection strings
-- Private keys (RSA, EC, DSA)
-- Cloud provider secrets (AWS, vendor keys)
-- GitHub personal access tokens
+- Do not commit secrets, tokens, passwords, or connection strings.
+- Do not commit home paths, private IPs, or hostnames that identify the
+  local lab.
+- Do not add downstream project names or internal-only service names to
+  public docs unless they are already part of the shipped surface.
 
-All redacted content is replaced with `[REDACTED:<type>]` markers.
+## Data handling
 
-## Data Isolation
+- Archive and memory output can contain sensitive operational context.
+- Treat `preserve.*` data, benchmark JSON, and generated notes as
+  sensitive until you know they are safe to share.
+- Prefer local processing and local storage for operational data.
 
-- All data is stored locally in PostgreSQL — nothing is sent to external services except:
-  - **vLLM endpoints** (local by default) for semantic extraction
-  - **Claude CLI** (optional fallback) for semantic extraction when vLLM is unavailable
-  - **Telegram API** (optional) for pipeline notifications
-  - **Grafana API** (optional, local) for alert extraction
-- Embedding generation happens locally via your configured endpoint
-- The nightly pipeline runs entirely on your infrastructure
+## LLM and embedding calls
 
-## Credentials
+- Use environment variables for all endpoints and credentials.
+- The retrieval library should degrade safely if the embedder is
+  unavailable.
+- The example MCP server should stay importable without a live database.
 
-- Database credentials should be stored in `.env` (gitignored)
-- Never commit `.env` files
-- Use environment variables for all secrets
-- The `.env.example` file contains no real credentials
+## Reporting issues
 
-## File Permissions
+If you find a security issue, report it with enough detail to reproduce
+the problem, but do not include secrets in the report. Include:
 
-- The `data/` directory contains extracted knowledge — restrict access appropriately
-- Archive files may contain full incident content — treat with same sensitivity as source data
-- Published markdown notes in `data/memory/` are derivative — still handle with care
+- affected file or command
+- expected behavior
+- observed behavior
+- whether the issue affects the public launch surface
 
-## Trust Classes
+Prefer GitHub private vulnerability reporting for the public repo. If
+that path is unavailable, use the maintainer contact listed in the
+repository settings and keep the report private until triaged.
 
-BrainCore assigns trust levels to all extracted facts:
+## Supported versions
 
-| Class | Trust Level | Source |
-|-------|-------------|--------|
-| `deterministic` | Highest | Parsed directly from logs/YAML — no LLM involved |
-| `human_curated` | High | Operator-approved or agent-curated knowledge |
-| `corroborated_llm` | Medium | LLM-extracted, confirmed by multiple sources |
-| `single_source_llm` | Low | LLM-extracted from a single source |
+BrainCore documents `PostgreSQL 15+ (tested on 16)` for the launch
+surface.
 
-Consumers should filter by assertion class based on their reliability requirements.
+## Reference
 
-## Network Security
-
-- By default, all services run on localhost
-- No ports are exposed externally
-- SSH is not required (unlike some previous architectures)
-- Configure firewall rules if exposing any endpoints
+This repo follows the spirit of Contributor Covenant v2.1 for
+interaction norms: be respectful, avoid harassment, and keep review
+discussion focused on the work.

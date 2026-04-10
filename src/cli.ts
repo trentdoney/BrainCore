@@ -49,6 +49,7 @@ function printUsage(): void {
   console.log("  project              Project lifecycle commands");
   console.log("    list               Show projects with artifact/fact counts");
   console.log("    tag --retag-all    Re-run project resolution on all artifacts");
+  console.log("    bootstrap-defaults Clone default project seeds into the active tenant");
   console.log("    archive <name>     Archive a project (--reason 'text')");
   console.log("    merge <src> --into <tgt>  Merge source project into target");
   console.log("    fork <parent> --into <child1> <child2>  Fork a project");
@@ -57,7 +58,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations");
+  console.log("  migrate              Run database migrations 001-010");
   console.log("  help, --help, -h     Show this help message");
 }
 
@@ -85,7 +86,8 @@ const commands: Record<string, () => Promise<void>> = {
     const artifacts = await sql`
       SELECT artifact_id, source_key, original_path, sha256
       FROM preserve.artifact
-      WHERE preservation_state = 'discovered'
+      WHERE tenant = ${config.tenant}
+        AND preservation_state = 'discovered'
       ORDER BY discovered_at ASC
       LIMIT 50
     `;
@@ -99,6 +101,7 @@ const commands: Record<string, () => Promise<void>> = {
           SET preservation_state = 'archived'::preserve.preservation_state,
               updated_at = now()
           WHERE artifact_id = ${art.artifact_id}
+            AND tenant = ${config.tenant}
         `;
         console.log(`  Archived: ${art.source_key}`);
       } catch (e: any) {
@@ -326,7 +329,8 @@ const commands: Record<string, () => Promise<void>> = {
     const blocked = await sql`
       SELECT artifact_id, source_key, preservation_state, original_path
       FROM preserve.artifact
-      WHERE preservation_state IN ('blocked', 'failed', 'pending_escalation')
+      WHERE tenant = ${config.tenant}
+        AND preservation_state IN ('blocked', 'failed', 'pending_escalation')
       ORDER BY updated_at DESC
     `;
 
@@ -354,19 +358,20 @@ const commands: Record<string, () => Promise<void>> = {
       const rows = await sql`
         SELECT
           e.canonical_name AS project,
-          (SELECT count(*) FROM preserve.artifact a WHERE a.project_entity_id = e.entity_id) AS artifacts,
-          (SELECT count(*) FROM preserve.fact f WHERE f.project_entity_id = e.entity_id) AS facts,
-          (SELECT count(*) FROM preserve.segment s WHERE s.project_entity_id = e.entity_id) AS segments,
-          (SELECT count(*) FROM preserve.episode ep WHERE ep.project_entity_id = e.entity_id) AS episodes,
-          (SELECT count(*) FROM preserve.memory m WHERE m.project_entity_id = e.entity_id) AS memories,
+          (SELECT count(*) FROM preserve.artifact a WHERE a.project_entity_id = e.entity_id AND a.tenant = ${config.tenant}) AS artifacts,
+          (SELECT count(*) FROM preserve.fact f WHERE f.project_entity_id = e.entity_id AND f.tenant = ${config.tenant}) AS facts,
+          (SELECT count(*) FROM preserve.segment s WHERE s.project_entity_id = e.entity_id AND s.tenant = ${config.tenant}) AS segments,
+          (SELECT count(*) FROM preserve.episode ep WHERE ep.project_entity_id = e.entity_id AND ep.tenant = ${config.tenant}) AS episodes,
+          (SELECT count(*) FROM preserve.memory m WHERE m.project_entity_id = e.entity_id AND m.tenant = ${config.tenant}) AS memories,
           (SELECT string_agg(psm.service_name, ', ' ORDER BY psm.service_name) FROM preserve.project_service_map psm WHERE psm.project_entity_id = e.entity_id) AS services
         FROM preserve.entity e
-        WHERE e.entity_type = 'project'
+        WHERE e.tenant = ${config.tenant}
+          AND e.entity_type = 'project'
         ORDER BY artifacts DESC, e.canonical_name
       `;
 
       if (rows.length === 0) {
-        console.log("No projects found. Run sql/004_seed_projects.sql first.");
+        console.log("No projects found. Seed default projects or run `braincore project bootstrap-defaults` for this tenant.");
         await sql.end();
         return;
       }
@@ -417,9 +422,9 @@ const commands: Record<string, () => Promise<void>> = {
       // Untagged counts
       const [untagged] = await sql`
         SELECT
-          (SELECT count(*) FROM preserve.artifact WHERE project_entity_id IS NULL) AS artifacts,
-          (SELECT count(*) FROM preserve.fact WHERE project_entity_id IS NULL) AS facts,
-          (SELECT count(*) FROM preserve.segment WHERE project_entity_id IS NULL) AS segments
+          (SELECT count(*) FROM preserve.artifact WHERE tenant = ${config.tenant} AND project_entity_id IS NULL) AS artifacts,
+          (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id IS NULL) AS facts,
+          (SELECT count(*) FROM preserve.segment WHERE tenant = ${config.tenant} AND project_entity_id IS NULL) AS segments
       `;
       console.log(
         "(untagged)".padEnd(22) +
@@ -446,18 +451,19 @@ const commands: Record<string, () => Promise<void>> = {
 
       // If retag-all, clear existing tags first
       if (retagAll) {
-        await sql`UPDATE preserve.artifact SET project_entity_id = NULL`;
-        await sql`UPDATE preserve.fact SET project_entity_id = NULL`;
-        await sql`UPDATE preserve.segment SET project_entity_id = NULL`;
-        await sql`UPDATE preserve.episode SET project_entity_id = NULL`;
-        await sql`UPDATE preserve.memory SET project_entity_id = NULL`;
-        console.log("  Cleared all existing project tags.");
+        await sql`UPDATE preserve.artifact SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+        await sql`UPDATE preserve.fact SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+        await sql`UPDATE preserve.segment SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+        await sql`UPDATE preserve.episode SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+        await sql`UPDATE preserve.memory SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+        console.log(`  Cleared existing project tags for tenant ${config.tenant}.`);
       }
 
       const artifacts = await sql`
         SELECT a.artifact_id, a.source_key, a.original_path, a.scope_path
         FROM preserve.artifact a
-        WHERE a.project_entity_id IS NULL
+        WHERE a.tenant = ${config.tenant}
+          AND a.project_entity_id IS NULL
       `;
       console.log(`  Found ${artifacts.length} artifacts to process.`);
 
@@ -469,7 +475,10 @@ const commands: Record<string, () => Promise<void>> = {
           FROM preserve.fact f
           JOIN preserve.entity e ON e.entity_id = f.subject_entity_id
           JOIN preserve.extraction_run er ON er.run_id = f.created_run_id
-          WHERE er.artifact_id = ${art.artifact_id} AND e.entity_type = 'service'
+          WHERE er.artifact_id = ${art.artifact_id}
+            AND f.tenant = ${config.tenant}
+            AND e.tenant = ${config.tenant}
+            AND e.entity_type = 'service'
         `;
         const services = svcRows.map((r: any) => r.canonical_name);
 
@@ -479,18 +488,164 @@ const commands: Record<string, () => Promise<void>> = {
             ? `project:${match.projectName}/${art.scope_path}`
             : `project:${match.projectName}`;
 
-          await sql`UPDATE preserve.artifact SET project_entity_id = ${match.projectEntityId}, scope_path = ${newScope} WHERE artifact_id = ${art.artifact_id}`;
+          await sql`
+            UPDATE preserve.artifact
+            SET project_entity_id = ${match.projectEntityId}, scope_path = ${newScope}
+            WHERE artifact_id = ${art.artifact_id}
+              AND tenant = ${config.tenant}
+          `;
           await sql`
             UPDATE preserve.fact SET project_entity_id = ${match.projectEntityId}
             FROM preserve.extraction_run er
-            WHERE preserve.fact.created_run_id = er.run_id AND er.artifact_id = ${art.artifact_id} AND preserve.fact.project_entity_id IS NULL
+            WHERE preserve.fact.created_run_id = er.run_id
+              AND er.artifact_id = ${art.artifact_id}
+              AND preserve.fact.tenant = ${config.tenant}
+              AND preserve.fact.project_entity_id IS NULL
           `;
-          await sql`UPDATE preserve.segment SET project_entity_id = ${match.projectEntityId} WHERE artifact_id = ${art.artifact_id} AND project_entity_id IS NULL`;
-          await sql`UPDATE preserve.episode SET project_entity_id = ${match.projectEntityId} WHERE primary_artifact_id = ${art.artifact_id} AND project_entity_id IS NULL`;
+          await sql`
+            UPDATE preserve.segment
+            SET project_entity_id = ${match.projectEntityId}
+            WHERE artifact_id = ${art.artifact_id}
+              AND tenant = ${config.tenant}
+              AND project_entity_id IS NULL
+          `;
+          await sql`
+            UPDATE preserve.episode
+            SET project_entity_id = ${match.projectEntityId}
+            WHERE primary_artifact_id = ${art.artifact_id}
+              AND tenant = ${config.tenant}
+              AND project_entity_id IS NULL
+          `;
           tagged++;
         }
       }
+
+      await sql`UPDATE preserve.memory SET project_entity_id = NULL WHERE tenant = ${config.tenant}`;
+      const memoryRetagged = await sql`
+        WITH candidate_projects AS (
+          SELECT
+            ms.memory_id,
+            min(cp.project_entity_id) AS project_entity_id,
+            count(DISTINCT cp.project_entity_id) AS project_count
+          FROM preserve.memory_support ms
+          JOIN preserve.memory m
+            ON m.memory_id = ms.memory_id
+           AND m.tenant = ${config.tenant}
+          JOIN LATERAL (
+            SELECT f.project_entity_id
+            FROM preserve.fact f
+            WHERE f.fact_id = ms.fact_id
+              AND f.tenant = ${config.tenant}
+              AND f.project_entity_id IS NOT NULL
+            UNION ALL
+            SELECT ep.project_entity_id
+            FROM preserve.episode ep
+            WHERE ep.episode_id = ms.episode_id
+              AND ep.tenant = ${config.tenant}
+              AND ep.project_entity_id IS NOT NULL
+          ) cp ON TRUE
+          GROUP BY ms.memory_id
+        )
+        UPDATE preserve.memory m
+        SET project_entity_id = cp.project_entity_id
+        FROM candidate_projects cp
+        WHERE m.memory_id = cp.memory_id
+          AND m.tenant = ${config.tenant}
+          AND cp.project_count = 1
+        RETURNING m.memory_id
+      `;
+      const [ambiguousMemories] = await sql`
+        WITH candidate_projects AS (
+          SELECT
+            ms.memory_id,
+            count(DISTINCT cp.project_entity_id) AS project_count
+          FROM preserve.memory_support ms
+          JOIN preserve.memory m
+            ON m.memory_id = ms.memory_id
+           AND m.tenant = ${config.tenant}
+          JOIN LATERAL (
+            SELECT f.project_entity_id
+            FROM preserve.fact f
+            WHERE f.fact_id = ms.fact_id
+              AND f.tenant = ${config.tenant}
+              AND f.project_entity_id IS NOT NULL
+            UNION ALL
+            SELECT ep.project_entity_id
+            FROM preserve.episode ep
+            WHERE ep.episode_id = ms.episode_id
+              AND ep.tenant = ${config.tenant}
+              AND ep.project_entity_id IS NOT NULL
+          ) cp ON TRUE
+          GROUP BY ms.memory_id
+        )
+        SELECT count(*) AS n
+        FROM candidate_projects
+        WHERE project_count <> 1
+      `;
+
       console.log(`  Tagged ${tagged}/${artifacts.length} artifacts.`);
+      console.log(`  Rebuilt ${memoryRetagged.length} memory project tags.`);
+      if (Number(ambiguousMemories?.n || 0) > 0) {
+        console.log(`  Left ${ambiguousMemories.n} memories untagged due to zero or ambiguous project support.`);
+      }
+      await sql.end();
+    } else if (subcommand === "bootstrap-defaults") {
+      console.log(`\n=== BrainCore Project Bootstrap: ${config.tenant} ===\n`);
+      const connected = await testConnection();
+      if (!connected) { process.exit(1); }
+
+      if (config.tenant === "default") {
+        console.log("  Active tenant is default; bootstrap-defaults is a no-op.");
+        await sql.end();
+        return;
+      }
+
+      const seededProjects = await sql`
+        INSERT INTO preserve.entity (
+          tenant, entity_type, canonical_name, aliases, attrs, first_seen_at, last_seen_at, embedding
+        )
+        SELECT
+          ${config.tenant},
+          e.entity_type,
+          e.canonical_name,
+          e.aliases,
+          COALESCE(e.attrs, '{}'::jsonb)
+            - 'status'
+            - 'archived_at'
+            - 'archive_reason'
+            - 'forked_from'
+            - 'forked_at'
+            - 'merged_into'
+            - 'merged_at',
+          e.first_seen_at,
+          e.last_seen_at,
+          e.embedding
+        FROM preserve.entity e
+        WHERE e.tenant = 'default'
+          AND e.entity_type = 'project'
+        ON CONFLICT (tenant, entity_type, canonical_name) DO UPDATE
+          SET last_seen_at = GREATEST(preserve.entity.last_seen_at, EXCLUDED.last_seen_at)
+        RETURNING entity_id, canonical_name
+      `;
+
+      const seededMappings = await sql`
+        INSERT INTO preserve.project_service_map (project_entity_id, service_name)
+        SELECT target.entity_id, psm.service_name
+        FROM preserve.project_service_map psm
+        JOIN preserve.entity src
+          ON src.entity_id = psm.project_entity_id
+         AND src.tenant = 'default'
+         AND src.entity_type = 'project'
+        JOIN preserve.entity target
+          ON target.tenant = ${config.tenant}
+         AND target.entity_type = src.entity_type
+         AND target.canonical_name = src.canonical_name
+        ON CONFLICT (project_entity_id, service_name) DO NOTHING
+        RETURNING project_entity_id
+      `;
+
+      console.log(`  Upserted ${seededProjects.length} tenant-local project rows.`);
+      console.log(`  Added ${seededMappings.length} project-service mappings.`);
       await sql.end();
     } else if (subcommand === "archive") {
       const name = args[1];
@@ -554,12 +709,13 @@ const commands: Record<string, () => Promise<void>> = {
 
       const [proj] = await sql`
         SELECT e.entity_id, e.canonical_name, e.attrs,
-          (SELECT count(*) FROM preserve.fact WHERE project_entity_id = e.entity_id) AS facts,
-          (SELECT count(*) FROM preserve.fact WHERE project_entity_id = e.entity_id AND is_milestone = TRUE) AS milestones,
-          (SELECT count(*) FROM preserve.memory WHERE project_entity_id = e.entity_id AND lifecycle_state = 'published') AS memories,
-          (SELECT avg(importance_score)::float FROM preserve.fact WHERE project_entity_id = e.entity_id) AS avg_importance
+          (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id) AS facts,
+          (SELECT count(*) FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id AND priority = 1) AS milestones,
+          (SELECT count(*) FROM preserve.memory WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id AND lifecycle_state = 'published') AS memories,
+          (SELECT avg(importance_score)::float FROM preserve.fact WHERE tenant = ${config.tenant} AND project_entity_id = e.entity_id) AS avg_importance
         FROM preserve.entity e
-        WHERE e.entity_type = 'project'
+        WHERE e.tenant = ${config.tenant}
+          AND e.entity_type = 'project'
           AND (e.canonical_name ILIKE ${`%${name}%`} OR e.aliases::text ILIKE ${`%${name}%`})
         LIMIT 1
       `;
@@ -583,7 +739,8 @@ const commands: Record<string, () => Promise<void>> = {
       // Top predicates
       const preds = await sql`
         SELECT predicate, count(*) AS n FROM preserve.fact
-        WHERE project_entity_id = ${proj.entity_id}
+        WHERE tenant = ${config.tenant}
+          AND project_entity_id = ${proj.entity_id}
         GROUP BY predicate ORDER BY n DESC LIMIT 5
       `;
       if (preds.length > 0) {
@@ -598,6 +755,7 @@ const commands: Record<string, () => Promise<void>> = {
     } else {
       console.error("Usage: braincore project list");
       console.error("       braincore project tag --retag-all");
+      console.error("       braincore project bootstrap-defaults");
       console.error("       braincore project archive <name> --reason 'text'");
       console.error("       braincore project merge <source> --into <target>");
       console.error("       braincore project fork <parent> --into <child1> <child2>");
@@ -684,7 +842,7 @@ const commands: Record<string, () => Promise<void>> = {
 
       // Milestone counts
       const [milestoneCount] = await sql`
-        SELECT count(*) AS n FROM preserve.fact WHERE is_milestone = TRUE
+        SELECT count(*) AS n FROM preserve.fact WHERE tenant = ${config.tenant} AND priority = 1
       `;
       console.log(`[stats] Total milestones: ${milestoneCount.n}`);
 
@@ -712,7 +870,16 @@ const commands: Record<string, () => Promise<void>> = {
   },
 
   migrate: async () => {
-    console.log("braincore migrate -- not yet implemented");
+    const dsn = process.env.BRAINCORE_POSTGRES_DSN;
+    if (!dsn) {
+      console.error("Missing required environment variable: BRAINCORE_POSTGRES_DSN");
+      process.exit(1);
+    }
+
+    const { runMigrations } = await import("./migrate");
+    console.log("\n=== BrainCore Migrate ===\n");
+    await runMigrations(dsn);
+    console.log("\nMigrations complete.");
   },
 };
 
@@ -755,6 +922,7 @@ async function extractSession(sessionPath: string): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -765,7 +933,7 @@ async function extractSession(sessionPath: string): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -774,7 +942,7 @@ async function extractSession(sessionPath: string): Promise<void> {
         ${fileSha256},
         ${fileSize},
         ${deterministic.scope_path},
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -818,6 +986,7 @@ async function extractPAI(): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -827,7 +996,7 @@ async function extractPAI(): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -836,7 +1005,7 @@ async function extractPAI(): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'pai:memory/auto',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -952,6 +1121,7 @@ async function extractSingleIncident(
   const existing = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${slug}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -962,7 +1132,7 @@ async function extractSingleIncident(
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${slug},
@@ -971,7 +1141,7 @@ async function extractSingleIncident(
         ${fileSha256},
         ${fileSize},
         ${deterministic.scope_path},
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -1035,8 +1205,9 @@ async function extractPendingArtifacts(
   const pending = await sql`
     SELECT artifact_id, source_key, original_path, source_type::text
     FROM preserve.artifact
-    WHERE can_query_raw = false
-    AND source_type IN ('opsvault_incident', 'claude_session')
+    WHERE tenant = ${config.tenant}
+      AND can_query_raw = false
+      AND source_type IN ('opsvault_incident', 'claude_session')
     ORDER BY discovered_at ASC
   `.catch((e: any) => {
     console.error(`Query failed: ${e.message}`);
@@ -1103,6 +1274,7 @@ async function extractCodexHistory(dryRun?: boolean): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -1112,7 +1284,7 @@ async function extractCodexHistory(dryRun?: boolean): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -1121,7 +1293,7 @@ async function extractCodexHistory(dryRun?: boolean): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'codex:history',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -1171,6 +1343,7 @@ async function extractCodexShared(dryRun?: boolean): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -1180,7 +1353,7 @@ async function extractCodexShared(dryRun?: boolean): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -1189,7 +1362,7 @@ async function extractCodexShared(dryRun?: boolean): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'codex:shared',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -1243,6 +1416,7 @@ async function extractDiscord(dryRun?: boolean): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -1253,7 +1427,7 @@ async function extractDiscord(dryRun?: boolean): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -1262,7 +1436,7 @@ async function extractDiscord(dryRun?: boolean): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'discord:digest',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -1343,6 +1517,7 @@ async function extractTelegram(dryRun?: boolean): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -1353,7 +1528,7 @@ async function extractTelegram(dryRun?: boolean): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -1362,7 +1537,7 @@ async function extractTelegram(dryRun?: boolean): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'telegram:chat/pai',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id
@@ -1400,7 +1575,8 @@ async function extractGrafana(dryRun?: boolean): Promise<void> {
                ep.start_at, ep.end_at
         FROM preserve.entity e
         LEFT JOIN preserve.episode ep ON ep.scope_path LIKE '%' || e.canonical_name || '%'
-        WHERE e.entity_type = 'incident'
+        WHERE e.tenant = ${config.tenant}
+          AND e.entity_type = 'incident'
         ORDER BY ep.start_at DESC NULLS LAST
         LIMIT 100
       `;
@@ -1459,6 +1635,7 @@ async function extractGrafana(dryRun?: boolean): Promise<void> {
   const [existing] = await sql`
     SELECT artifact_id FROM preserve.artifact
     WHERE source_key = ${sourceKey}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 
@@ -1469,7 +1646,7 @@ async function extractGrafana(dryRun?: boolean): Promise<void> {
     const [newArtifact] = await sql`
       INSERT INTO preserve.artifact (
         source_key, source_type, original_path, sha256, size_bytes,
-        scope_path, can_query_raw, can_promote_memory,
+        scope_path, can_query_raw, can_promote_memory, tenant,
         preservation_state
       ) VALUES (
         ${sourceKey},
@@ -1478,7 +1655,7 @@ async function extractGrafana(dryRun?: boolean): Promise<void> {
         ${fileSha256},
         ${sourceContent.length},
         'monitoring:grafana/alerts',
-        false, false,
+        false, false, ${config.tenant},
         'discovered'::preserve.preservation_state
       )
       RETURNING artifact_id

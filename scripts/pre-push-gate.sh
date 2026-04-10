@@ -1,7 +1,7 @@
 #!/bin/bash
 # BrainCore pre-push sanitization gate
 # Returns exit 0 only if ALL gates pass (zero matches).
-# See CLAUDE.md and AGENTS.md for context.
+# See AGENTS.md for context.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 

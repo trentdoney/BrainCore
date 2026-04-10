@@ -165,7 +165,7 @@ async function resolveEntity(
   const [row] = await tx`
     INSERT INTO preserve.entity (canonical_name, entity_type, first_seen_at, last_seen_at, tenant)
     VALUES (${name}, ${entityType}::preserve.entity_type, now(), now(), ${config.tenant})
-    ON CONFLICT (entity_type, canonical_name) DO UPDATE SET
+    ON CONFLICT (tenant, entity_type, canonical_name) DO UPDATE SET
       last_seen_at = now()
     RETURNING entity_id
   `;
@@ -634,18 +634,20 @@ export async function loadExtraction(
     }
   });
 
+  const qualityGate: any = qualityGateResult;
+
   return {
     entitiesCreated,
     factsCreated,
     segmentsCreated,
     episodeId,
     warnings,
-    qualityGate: qualityGateResult ? {
-      duplicateCount: qualityGateResult.duplicateCount,
-      rejectedCount: qualityGateResult.rejectedCount,
-      acceptedCount: qualityGateResult.acceptedCount,
-      updatedCount: qualityGateResult.updatedCount,
-      reasons: qualityGateResult.reasons,
+    qualityGate: qualityGate ? {
+      duplicateCount: qualityGate.duplicateCount,
+      rejectedCount: qualityGate.rejectedCount,
+      acceptedCount: qualityGate.acceptedCount,
+      updatedCount: qualityGate.updatedCount,
+      reasons: qualityGate.reasons,
     } : undefined,
   };
 }

@@ -5,14 +5,14 @@
 BEGIN;
 
 -- Insert project entities (ON CONFLICT skip if already seeded)
-INSERT INTO preserve.entity (entity_type, canonical_name, aliases, attrs)
+INSERT INTO preserve.entity (tenant, entity_type, canonical_name, aliases, attrs)
 VALUES
-  ('project', 'web-app',         '[]'::jsonb, '{"description": "Main web application"}'::jsonb),
-  ('project', 'api-service',     '[]'::jsonb, '{"description": "Backend API service"}'::jsonb),
-  ('project', 'data-pipeline',   '[]'::jsonb, '{"description": "Data processing pipeline"}'::jsonb),
-  ('project', 'monitoring',      '[]'::jsonb, '{"description": "Monitoring and alerting infrastructure"}'::jsonb),
-  ('project', 'system-infra',    '[]'::jsonb, '{"description": "System infrastructure: PostgreSQL, Docker, etc."}'::jsonb)
-ON CONFLICT (entity_type, canonical_name) DO NOTHING;
+  ('default', 'project', 'web-app',         '[]'::jsonb, '{"description": "Main web application"}'::jsonb),
+  ('default', 'project', 'api-service',     '[]'::jsonb, '{"description": "Backend API service"}'::jsonb),
+  ('default', 'project', 'data-pipeline',   '[]'::jsonb, '{"description": "Data processing pipeline"}'::jsonb),
+  ('default', 'project', 'monitoring',      '[]'::jsonb, '{"description": "Monitoring and alerting infrastructure"}'::jsonb),
+  ('default', 'project', 'system-infra',    '[]'::jsonb, '{"description": "System infrastructure: PostgreSQL, Docker, etc."}'::jsonb)
+ON CONFLICT DO NOTHING;
 
 -- Map services to projects
 INSERT INTO preserve.project_service_map (project_entity_id, service_name)
@@ -37,14 +37,17 @@ LATERAL (VALUES
   ('system-infra', 'nginx'),
   ('system-infra', 'ssh')
 ) AS svc(project, name)
-WHERE e.entity_type = 'project' AND e.canonical_name = svc.project
+WHERE e.tenant = 'default'
+  AND e.entity_type = 'project'
+  AND e.canonical_name = svc.project
 ON CONFLICT (project_entity_id, service_name) DO NOTHING;
 
 -- Verify
 SELECT e.canonical_name AS project, count(psm.service_name) AS services
 FROM preserve.entity e
 JOIN preserve.project_service_map psm ON psm.project_entity_id = e.entity_id
-WHERE e.entity_type = 'project'
+WHERE e.tenant = 'default'
+  AND e.entity_type = 'project'
 GROUP BY e.canonical_name
 ORDER BY e.canonical_name;
 

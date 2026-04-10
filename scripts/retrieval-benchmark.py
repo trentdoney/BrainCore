@@ -8,7 +8,6 @@ and evidence grounding.
 import requests
 import time
 import json
-import sys
 import statistics
 
 BASE = "http://localhost:8900"
@@ -382,7 +381,7 @@ def run_benchmark():
 
     # Result counts
     counts = [r["result_count"] for r in results]
-    print(f"\n  Result counts:")
+    print("\n  Result counts:")
     print(f"    Mean:  {statistics.mean(counts):.1f}")
     print(f"    Min:   {min(counts)}")
     print(f"    Max:   {max(counts)}")
@@ -390,7 +389,7 @@ def run_benchmark():
     # Evidence grounding (search only)
     evid_rates = [r["evidence_rate"] for r in results if isinstance(r.get("evidence_rate"), (int, float))]
     if evid_rates:
-        print(f"\n  Evidence grounding (search queries):")
+        print("\n  Evidence grounding (search queries):")
         print(f"    Mean:  {statistics.mean(evid_rates):.1f}%")
         print(f"    Min:   {min(evid_rates):.1f}%")
         print(f"    Max:   {max(evid_rates):.1f}%")
@@ -402,7 +401,7 @@ def run_benchmark():
     total_tmp = sum(r.get("temporal", 0) for r in results if isinstance(r.get("temporal"), int))
     total_all = total_vec + total_fts + total_str + total_tmp
     if total_all > 0:
-        print(f"\n  Stream utilization (search queries, total candidates):")
+        print("\n  Stream utilization (search queries, total candidates):")
         print(f"    Vector:     {total_vec:>5} ({total_vec/total_all*100:.1f}%)")
         print(f"    FTS:        {total_fts:>5} ({total_fts/total_all*100:.1f}%)")
         print(f"    Structured: {total_str:>5} ({total_str/total_all*100:.1f}%)")
@@ -410,11 +409,11 @@ def run_benchmark():
 
     # Relevance
     relevant_count = sum(1 for r in results if r["relevant"])
-    print(f"\n  Relevance:")
+    print("\n  Relevance:")
     print(f"    Relevant:  {relevant_count}/{len(results)} ({relevant_count/len(results)*100:.0f}%)")
 
     # Hard negative differentiation (Q11 vs Q2)
-    print(f"\n  Hard negative analysis:")
+    print("\n  Hard negative analysis:")
     q2 = next(r for r in results if r["num"] == 2)
     q11 = next(r for r in results if r["num"] == 11)
     q2_scopes = set(t.get("scope", "") for t in q2.get("top3", []))
@@ -469,7 +468,7 @@ def run_benchmark():
 
     with open("./scripts/benchmark-results.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nJSON summary written to ./scripts/benchmark-results.json")
+    print("\nJSON summary written to ./scripts/benchmark-results.json")
 
 
 if __name__ == "__main__":

@@ -3,15 +3,20 @@
  */
 
 import { sql } from "../db";
+import { config } from "../config";
 
 export async function mergeProject(sourceName: string, targetName: string) {
   const [source] = await sql`
     SELECT entity_id FROM preserve.entity
-    WHERE entity_type = 'project' AND canonical_name = ${sourceName}
+    WHERE tenant = ${config.tenant}
+      AND entity_type = 'project'
+      AND canonical_name = ${sourceName}
   `;
   const [target] = await sql`
     SELECT entity_id FROM preserve.entity
-    WHERE entity_type = 'project' AND canonical_name = ${targetName}
+    WHERE tenant = ${config.tenant}
+      AND entity_type = 'project'
+      AND canonical_name = ${targetName}
   `;
   if (!source) throw new Error(`Source project not found: ${sourceName}`);
   if (!target) throw new Error(`Target project not found: ${targetName}`);
@@ -24,6 +29,7 @@ export async function mergeProject(sourceName: string, targetName: string) {
       UPDATE preserve.${sql(table)}
       SET project_entity_id = ${target.entity_id}
       WHERE project_entity_id = ${source.entity_id}
+        AND tenant = ${config.tenant}
       RETURNING 1
     `;
     counts[table] = result.length;
@@ -34,12 +40,14 @@ export async function mergeProject(sourceName: string, targetName: string) {
     UPDATE preserve.artifact
     SET scope_path = regexp_replace(scope_path, ${`project:${sourceName}`}, ${`project:${targetName}`})
     WHERE project_entity_id = ${target.entity_id}
+      AND tenant = ${config.tenant}
       AND scope_path LIKE ${`%project:${sourceName}%`}
   `;
   await sql`
     UPDATE preserve.fact
     SET scope_path = regexp_replace(scope_path, ${`project:${sourceName}`}, ${`project:${targetName}`})
     WHERE project_entity_id = ${target.entity_id}
+      AND tenant = ${config.tenant}
       AND scope_path LIKE ${`%project:${sourceName}%`}
   `;
 
@@ -52,6 +60,7 @@ export async function mergeProject(sourceName: string, targetName: string) {
       merged_at: new Date().toISOString(),
     })}
     WHERE entity_id = ${source.entity_id}
+      AND tenant = ${config.tenant}
   `;
 
   // 4. Add alias
@@ -59,6 +68,7 @@ export async function mergeProject(sourceName: string, targetName: string) {
     UPDATE preserve.entity
     SET aliases = COALESCE(aliases, '[]'::jsonb) || ${sql.json([sourceName])}
     WHERE entity_id = ${target.entity_id}
+      AND tenant = ${config.tenant}
   `;
 
   console.log(`Merged ${sourceName} -> ${targetName}:`, counts);

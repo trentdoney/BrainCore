@@ -7,6 +7,11 @@ Streams:
   4. Temporal/Relation expansion — enrich results with related facts & episodes
 
 Fusion: Reciprocal Rank Fusion with k=60
+
+Tenant contract:
+  - Each MCP process is bound to a single tenant via BRAINCORE_TENANT.
+  - Search is exact-tenant: results are restricted to that tenant only.
+  - Legacy/default rows are not mixed into non-default tenant reads.
 """
 
 from __future__ import annotations
@@ -26,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 RRF_K = 60
 
-# Tenant scoping — filter results to the active tenant plus the 'default'
-# scope that seed/legacy rows use when no tenant is set.
+# Tenant scoping — one process per tenant, exact tenant match only.
 TENANT = os.environ.get("BRAINCORE_TENANT", "default")
 
 
@@ -110,9 +114,9 @@ def _scope_clause(scope: Optional[str], prefix: str = "") -> tuple[str, list]:
 
 
 def _tenant_clause(tenant: str, prefix: str = "") -> tuple[str, list]:
-    """Build tenant filter — match active tenant OR legacy 'default' rows."""
+    """Build exact tenant filter for the current process tenant."""
     col = f"{prefix}tenant"
-    return f" AND ({col} = %s OR {col} = 'default')", [tenant]
+    return f" AND {col} = %s", [tenant]
 
 
 def _vec_literal(arr) -> str:

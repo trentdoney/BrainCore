@@ -1,13 +1,16 @@
 /**
- * fork.ts — Fork a project into child projects, copying milestone facts.
+ * fork.ts — Fork a project into child projects, copying priority-1 milestone facts.
  */
 
 import { sql } from "../db";
+import { config } from "../config";
 
 export async function forkProject(parentName: string, childNames: string[]) {
   const [parent] = await sql`
     SELECT entity_id FROM preserve.entity
-    WHERE entity_type = 'project' AND canonical_name = ${parentName}
+    WHERE tenant = ${config.tenant}
+      AND entity_type = 'project'
+      AND canonical_name = ${parentName}
   `;
   if (!parent) throw new Error(`Parent project not found: ${parentName}`);
 
@@ -17,8 +20,9 @@ export async function forkProject(parentName: string, childNames: string[]) {
     // Create child entity
     const [child] = await sql`
       INSERT INTO preserve.entity (
-        canonical_name, entity_type, first_seen_at, last_seen_at, attrs
+        tenant, canonical_name, entity_type, first_seen_at, last_seen_at, attrs
       ) VALUES (
+        ${config.tenant},
         ${childName}, 'project'::preserve.entity_type, now(), now(),
         ${sql.json({
           status: "active",
@@ -26,7 +30,7 @@ export async function forkProject(parentName: string, childNames: string[]) {
           forked_at: new Date().toISOString(),
         })}
       )
-      ON CONFLICT (entity_type, canonical_name) DO UPDATE
+      ON CONFLICT (tenant, entity_type, canonical_name) DO UPDATE
         SET attrs = preserve.entity.attrs || ${sql.json({
           forked_from: parent.entity_id,
           forked_at: new Date().toISOString(),
@@ -35,14 +39,15 @@ export async function forkProject(parentName: string, childNames: string[]) {
       RETURNING entity_id
     `;
 
-    // Copy milestone facts from parent to child (referencing same facts)
+    // Copy priority-1 milestone facts from parent to child (referencing same facts)
     // We don't duplicate facts; instead, child project gets its own scope
     // but we link the milestone facts by updating project_entity_id for
     // facts that match the child scope
     const milestones = await sql`
       SELECT fact_id FROM preserve.fact
       WHERE project_entity_id = ${parent.entity_id}
-        AND is_milestone = TRUE
+        AND tenant = ${config.tenant}
+        AND priority = 1
     `;
 
     results.push({
@@ -64,6 +69,7 @@ export async function forkProject(parentName: string, childNames: string[]) {
       forked_at: new Date().toISOString(),
     })}
     WHERE entity_id = ${parent.entity_id}
+      AND tenant = ${config.tenant}
   `;
 
   return {

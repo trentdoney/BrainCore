@@ -221,6 +221,13 @@ export async function storeRun(
   metrics: AggregateMetrics,
   cases: CaseResult[],
 ): Promise<string> {
+  const results = cases.map((c) => ({
+    eval_case_id: c.eval_case_id,
+    source_key: c.source_key,
+    device: c.device,
+    complexity: c.complexity,
+    metrics: c.metrics,
+  }));
   const [row] = await sql`
     INSERT INTO preserve.eval_run (
       pipeline_version, model_name, prompt_version, results, metrics
@@ -228,14 +235,8 @@ export async function storeRun(
       '0.1.0',
       'deterministic+semantic',
       'incident-v1',
-      ${sql.json(cases.map((c) => ({
-        eval_case_id: c.eval_case_id,
-        source_key: c.source_key,
-        device: c.device,
-        complexity: c.complexity,
-        metrics: c.metrics,
-      })))},
-      ${sql.json(metrics)}
+      ${sql.json(results as any)},
+      ${sql.json(metrics as any)}
     )
     RETURNING eval_run_id
   `;

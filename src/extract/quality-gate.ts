@@ -20,6 +20,7 @@
 
 import type postgres from "postgres";
 import { createHash } from "crypto";
+import { config } from "../config";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -216,6 +217,7 @@ async function checkDuplicate(
     SELECT fact_id, fact_kind::text, last_seen_at
     FROM preserve.fact
     WHERE canonical_fingerprint = ${fingerprint}
+      AND tenant = ${config.tenant}
     LIMIT 1
   `.catch(() => [] as any[]);
 

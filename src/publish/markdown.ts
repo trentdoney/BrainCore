@@ -9,6 +9,7 @@ import { createHash } from "crypto";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
+import { config } from "../config";
 
 const PUBLISH_DIR = process.env.BRAINCORE_PUBLISH_DIR || "./data/memory/PRESERVED";
 
@@ -49,6 +50,7 @@ export async function publishNotes(
     FROM preserve.memory m
     LEFT JOIN preserve.entity e ON m.scope_entity_id = e.entity_id
     WHERE m.lifecycle_state = 'published'
+      AND m.tenant = ${config.tenant}
     ${scopeFilter}
     ORDER BY m.updated_at DESC
   `;

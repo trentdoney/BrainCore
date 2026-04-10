@@ -5,12 +5,12 @@
 -- Customize these for your own environment.
 -- =============================================================================
 
-INSERT INTO preserve.entity (entity_type, canonical_name, aliases, attrs)
+INSERT INTO preserve.entity (tenant, entity_type, canonical_name, aliases, attrs)
 VALUES
-    ('device', 'server-a',     '["server-a"]',
+    ('default', 'device', 'server-a',     '["server-a"]',
      '{"role": "GPU server + PostgreSQL", "os": "Linux"}'),
-    ('device', 'server-b',     '["server-b"]',
+    ('default', 'device', 'server-b',     '["server-b"]',
      '{"role": "Application server", "os": "Linux"}'),
-    ('device', 'workstation',  '["workstation"]',
+    ('default', 'device', 'workstation',  '["workstation"]',
      '{"role": "Developer workstation", "os": "Linux"}')
-ON CONFLICT (entity_type, canonical_name) DO NOTHING;
+ON CONFLICT DO NOTHING;
