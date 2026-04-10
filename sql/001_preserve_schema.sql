@@ -216,6 +216,20 @@ CREATE INDEX IF NOT EXISTS idx_entity_embedding
     ON preserve.entity USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 
+-- 2.5 project_service_map
+CREATE TABLE IF NOT EXISTS preserve.project_service_map (
+    project_entity_id   UUID          NOT NULL REFERENCES preserve.entity(entity_id),
+    service_name        TEXT          NOT NULL,
+    created_at          TIMESTAMPTZ   DEFAULT now(),
+    PRIMARY KEY (project_entity_id, service_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_service_map_project
+    ON preserve.project_service_map (project_entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_service_map_service
+    ON preserve.project_service_map (service_name);
+
+
 -- 2.5 episode
 CREATE TABLE IF NOT EXISTS preserve.episode (
     episode_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

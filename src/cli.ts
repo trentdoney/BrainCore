@@ -57,7 +57,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations");
+  console.log("  migrate              Run database migrations 001-008");
   console.log("  help, --help, -h     Show this help message");
 }
 
@@ -712,7 +712,16 @@ const commands: Record<string, () => Promise<void>> = {
   },
 
   migrate: async () => {
-    console.log("braincore migrate -- not yet implemented");
+    const dsn = process.env.BRAINCORE_POSTGRES_DSN;
+    if (!dsn) {
+      console.error("Missing required environment variable: BRAINCORE_POSTGRES_DSN");
+      process.exit(1);
+    }
+
+    const { runMigrations } = await import("./migrate");
+    console.log("\n=== BrainCore Migrate ===\n");
+    await runMigrations(dsn);
+    console.log("\nMigrations complete.");
   },
 };
 

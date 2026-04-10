@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml psycopg[binary] psycopg-pool numpy requests pgvector "mcp[cli]>=1.0"
+
+      - name: Compose release DSN
+        run: |
+          echo "BRAINCORE_TEST_DSN=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" >> "$GITHUB_ENV"
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Verify package version
+        run: test "$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME#v}"
+
+      - name: Verify tag commit shape
+        run: |
+          test "$(git rev-list --parents -n 1 "$GITHUB_SHA" | wc -w)" -ge 3
+          test "$(git rev-parse "$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
+
+      - name: Run launch checks
+        run: |
+          bun src/cli.ts migrate
+          bun test
+          python -m pytest tests/
+          python benchmarks/verify_tool_index.py --tool-index .agents/TOOL_INDEX.yaml
+          python benchmarks/verify_claims_to_evidence.py --readme README.md --claims benchmarks/claims-to-evidence.yaml
+          bash scripts/pre-push-gate.sh
+          python benchmarks/run_retrieval.py
+          python benchmarks/run_grounding.py
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            BrainCore ${{ github.ref_name }}.
+
+            Public launch artifacts:
+            - Production corpus facts, latency, and grounding metrics
+            - Benchmark README and reproducibility notes
+            - Changelog and launch docs
+
+            This release does not publish a Docker image or GHCR package.
+          files: |
+            benchmarks/results/2026-04-09-retrieval-production.json
+            benchmarks/results/2026-04-09-grounding-production.json
+            benchmarks/README.md
+            CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

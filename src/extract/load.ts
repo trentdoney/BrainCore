@@ -634,18 +634,20 @@ export async function loadExtraction(
     }
   });
 
+  const qualityGate: any = qualityGateResult;
+
   return {
     entitiesCreated,
     factsCreated,
     segmentsCreated,
     episodeId,
     warnings,
-    qualityGate: qualityGateResult ? {
-      duplicateCount: qualityGateResult.duplicateCount,
-      rejectedCount: qualityGateResult.rejectedCount,
-      acceptedCount: qualityGateResult.acceptedCount,
-      updatedCount: qualityGateResult.updatedCount,
-      reasons: qualityGateResult.reasons,
+    qualityGate: qualityGate ? {
+      duplicateCount: qualityGate.duplicateCount,
+      rejectedCount: qualityGate.rejectedCount,
+      acceptedCount: qualityGate.acceptedCount,
+      updatedCount: qualityGate.updatedCount,
+      reasons: qualityGate.reasons,
     } : undefined,
   };
 }

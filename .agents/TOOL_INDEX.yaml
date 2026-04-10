@@ -1,0 +1,4 @@
+tools:
+  - name: memory-search
+    description: 4-stream hybrid retrieval over the preserve schema
+    source: examples/mcp_server/server.py

@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" width="1400" height="800" role="img" aria-labelledby="braincore-arch-title braincore-arch-desc" font-family="-apple-system, system-ui, Segoe UI, Roboto, sans-serif">
+  <title id="braincore-arch-title">BrainCore data flow architecture</title>
+  <desc id="braincore-arch-desc">Six-stage pipeline from sources through archive, extract, consolidate, retrieve, and publish. Trust class pyramid sits to the left and the four-stream reciprocal rank fusion fanout sits in the retrieve stage.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#336791"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="800" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="700" y="46" text-anchor="middle" font-size="26" font-weight="700" fill="#0f172a">BrainCore data flow</text>
+  <text x="700" y="72" text-anchor="middle" font-size="15" fill="#475569">sources to archive to extract to consolidate to retrieve to publish</text>
+
+  <!-- ============== Trust class pyramid (left column) ============== -->
+  <g transform="translate(40, 130)">
+    <text x="120" y="0" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">Trust class pyramid</text>
+
+    <!-- 1st magnitude (apex) -->
+    <polygon points="120,30 90,90 150,90" fill="#336791" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="120" y="65" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff">1st mag</text>
+    <text x="120" y="80" text-anchor="middle" font-size="10" fill="#e2e8f0">deterministic</text>
+
+    <!-- 2nd to 3rd magnitude (middle band) -->
+    <polygon points="90,90 150,90 180,170 60,170" fill="#64748b" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="120" y="125" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff">2nd to 3rd mag</text>
+    <text x="120" y="142" text-anchor="middle" font-size="10" fill="#e2e8f0">corroborated LLM</text>
+
+    <!-- 4th magnitude (base) -->
+    <polygon points="60,170 180,170 220,250 20,250" fill="#cbd5e1" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="120" y="205" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">4th mag</text>
+    <text x="120" y="222" text-anchor="middle" font-size="10" fill="#0f172a">single-source LLM</text>
+
+    <!-- Legend -->
+    <text x="120" y="280" text-anchor="middle" font-size="10" fill="#475569">higher magnitude equals stronger evidence</text>
+  </g>
+
+  <!-- ============== Six pipeline stages (center grid) ============== -->
+  <!-- Each box: 180 wide x 90 tall, gap 30 -->
+  <!-- Row 1: stages 1, 2, 3 -->
+  <g font-size="14" fill="#0f172a">
+
+    <!-- Stage 1: Sources -->
+    <g transform="translate(310, 130)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">1. Sources</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">runbooks, incidents,</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">chat logs, code,</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">tickets, dashboards</text>
+    </g>
+
+    <!-- Stage 2: Archive -->
+    <g transform="translate(530, 130)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">2. Archive</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">raw immutable</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">photographic plate</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">SHA256 indexed</text>
+    </g>
+
+    <!-- Stage 3: Extract -->
+    <g transform="translate(750, 130)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">3. Extract</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">parsers and LLM</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">facts, entities,</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">trust class assigned</text>
+    </g>
+
+    <!-- Row 2: stages 6, 5, 4 (right to left to make the data loop visible) -->
+
+    <!-- Stage 4: Consolidate -->
+    <g transform="translate(750, 280)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">4. Consolidate</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">merge duplicates</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">resolve conflicts</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">corroborate evidence</text>
+    </g>
+
+    <!-- Stage 5: Retrieve -->
+    <g transform="translate(530, 280)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">5. Retrieve</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">four-stream RRF</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">vector, FTS,</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">graph, lexical</text>
+    </g>
+
+    <!-- Stage 6: Publish -->
+    <g transform="translate(310, 280)">
+      <rect width="180" height="90" rx="10" fill="#ffffff" stroke="#336791" stroke-width="2.5"/>
+      <text x="90" y="28" text-anchor="middle" font-size="13" font-weight="700">6. Publish</text>
+      <text x="90" y="50" text-anchor="middle" font-size="11" fill="#475569">MCP tools serve</text>
+      <text x="90" y="65" text-anchor="middle" font-size="11" fill="#475569">facts to agents,</text>
+      <text x="90" y="80" text-anchor="middle" font-size="11" fill="#475569">CLI, dashboards</text>
+    </g>
+  </g>
+
+  <!-- Arrows: stage to stage -->
+  <g fill="none" stroke="#334155" stroke-width="2">
+    <!-- 1 to 2 -->
+    <line x1="490" y1="175" x2="528" y2="175" marker-end="url(#arrow)"/>
+    <!-- 2 to 3 -->
+    <line x1="710" y1="175" x2="748" y2="175" marker-end="url(#arrow)"/>
+    <!-- 3 down to 4 -->
+    <path d="M 840 220 Q 840 250 840 278" marker-end="url(#arrow)"/>
+    <!-- 4 to 5 -->
+    <line x1="748" y1="325" x2="712" y2="325" marker-end="url(#arrow)"/>
+    <!-- 5 to 6 -->
+    <line x1="528" y1="325" x2="492" y2="325" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ============== Four-stream RRF detail (lower-right) ============== -->
+  <g transform="translate(990, 280)">
+    <rect width="370" height="320" rx="14" fill="#ffffff" stroke="#336791" stroke-width="2.5" stroke-dasharray="6 4"/>
+    <text x="185" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">Four-stream reciprocal rank fusion</text>
+    <text x="185" y="46" text-anchor="middle" font-size="11" fill="#475569">retrieval stage fanout, then merge</text>
+
+    <!-- Four parallel stream boxes -->
+    <g font-size="12" fill="#0f172a">
+      <g transform="translate(20, 70)">
+        <rect width="150" height="50" rx="6" fill="#e2e8f0" stroke="#336791" stroke-width="1.5"/>
+        <text x="75" y="22" text-anchor="middle" font-weight="700">vector</text>
+        <text x="75" y="38" text-anchor="middle" font-size="10" fill="#475569">pgvector cosine</text>
+      </g>
+      <g transform="translate(190, 70)">
+        <rect width="150" height="50" rx="6" fill="#e2e8f0" stroke="#336791" stroke-width="1.5"/>
+        <text x="75" y="22" text-anchor="middle" font-weight="700">full text search</text>
+        <text x="75" y="38" text-anchor="middle" font-size="10" fill="#475569">tsvector BM25</text>
+      </g>
+      <g transform="translate(20, 140)">
+        <rect width="150" height="50" rx="6" fill="#e2e8f0" stroke="#336791" stroke-width="1.5"/>
+        <text x="75" y="22" text-anchor="middle" font-weight="700">graph walk</text>
+        <text x="75" y="38" text-anchor="middle" font-size="10" fill="#475569">entity neighborhood</text>
+      </g>
+      <g transform="translate(190, 140)">
+        <rect width="150" height="50" rx="6" fill="#e2e8f0" stroke="#336791" stroke-width="1.5"/>
+        <text x="75" y="22" text-anchor="middle" font-weight="700">lexical exact</text>
+        <text x="75" y="38" text-anchor="middle" font-size="10" fill="#475569">trigram fallback</text>
+      </g>
+    </g>
+
+    <!-- Funnel to RRF merge -->
+    <g fill="none" stroke="#336791" stroke-width="2">
+      <line x1="95" y1="120" x2="145" y2="220" marker-end="url(#arrow-accent)"/>
+      <line x1="265" y1="120" x2="225" y2="220" marker-end="url(#arrow-accent)"/>
+      <line x1="95" y1="190" x2="155" y2="225" marker-end="url(#arrow-accent)"/>
+      <line x1="265" y1="190" x2="215" y2="225" marker-end="url(#arrow-accent)"/>
+    </g>
+
+    <!-- RRF merge box -->
+    <g transform="translate(125, 230)">
+      <rect width="120" height="46" rx="8" fill="#336791"/>
+      <text x="60" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">RRF merge</text>
+      <text x="60" y="38" text-anchor="middle" font-size="10" fill="#e2e8f0">k = 60</text>
+    </g>
+
+    <!-- Output label -->
+    <text x="185" y="298" text-anchor="middle" font-size="11" fill="#475569">ranked fact set with citations</text>
+  </g>
+
+  <!-- ============== Footer guarantees row ============== -->
+  <g transform="translate(40, 660)">
+    <rect width="1320" height="100" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="660" y="28" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">Constitutional guarantees</text>
+    <g font-size="12" fill="#334155">
+      <text x="40" y="55">Archive is append only</text>
+      <text x="40" y="75">SHA256 content addressed</text>
+      <text x="290" y="55">Every fact carries a trust class</text>
+      <text x="290" y="75">Every fact carries provenance</text>
+      <text x="560" y="55">Retrieval explainable</text>
+      <text x="560" y="75">memory_explain returns ranked sources</text>
+      <text x="830" y="55">PostgreSQL 15 plus, pgvector</text>
+      <text x="830" y="75">14 preserve tables, deterministic</text>
+      <text x="1080" y="55">Sanitization gates pre push</text>
+      <text x="1080" y="75">eight gate hardened</text>
+    </g>
+  </g>
+</svg>
