@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="BrainCore logo — observatory dome with photographic plate motif" width="160" height="160" />
+  <img src="assets/logo-square.jpg" alt="BrainCore logo" width="160" height="160" />
   <h1>BrainCore</h1>
   <p>
     <strong>BrainCore is a PostgreSQL/pgvector memory system for operational knowledge, with a Bun write layer, a Python retrieval library, a preserve schema, and 4-stream hybrid retrieval.</strong>
   </p>
   <p>
-    <a href="https://github.com/trentdoney/BrainCore/releases/tag/v1.1.4"><img alt="Version" src="https://img.shields.io/github/v/tag/trentdoney/BrainCore" /></a>
+    <a href="https://github.com/trentdoney/BrainCore/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/trentdoney/BrainCore" /></a>
     <a href="https://github.com/trentdoney/BrainCore"><img alt="Stack" src="https://img.shields.io/badge/stack-typescript%20%2B%20python-blue" /></a>
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/trentdoney/BrainCore" /></a>
     <img alt="PostgreSQL 15+" src="https://img.shields.io/badge/postgres-15%2B-336791" />
@@ -270,7 +270,7 @@ data sources
                            +------------------+
 ```
 
-![BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing.](assets/architecture.svg)
+![BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing.](assets/architecture.jpg)
 
 ### Trust classes
 

@@ -17,6 +17,12 @@ pip install -r requirements.txt
 
 These modules are designed to be imported into your MCP server implementation. The `memory_search()` function takes a `psycopg_pool.ConnectionPool` and returns search results ready for MCP tool responses.
 
+Tenant contract:
+
+- Run one MCP process per tenant.
+- `BRAINCORE_TENANT` fixes the tenant for that process.
+- Search is exact-tenant: each process reads only rows for its configured tenant.
+
 ```python
 from mcp.memory_search import memory_search
 

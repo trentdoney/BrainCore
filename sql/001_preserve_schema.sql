@@ -101,23 +101,27 @@ END $$;
 CREATE TABLE IF NOT EXISTS preserve.artifact (
     artifact_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_type          preserve.source_type        NOT NULL,
-    source_key           TEXT                         NOT NULL UNIQUE,
+    source_key           TEXT                         NOT NULL,
     original_path        TEXT                         NOT NULL,
     host                 TEXT,
     ttl_at               TIMESTAMPTZ,
     sha256               TEXT                         NOT NULL,
     size_bytes           BIGINT                       NOT NULL,
     value_score          NUMERIC(5,2)                 DEFAULT 0,
+    priority             INTEGER                      NOT NULL DEFAULT 5,
     preservation_state   preserve.preservation_state  NOT NULL DEFAULT 'discovered',
     can_evict_hot        BOOLEAN                      NOT NULL DEFAULT FALSE,
     can_query_raw        BOOLEAN                      NOT NULL DEFAULT FALSE,
     can_promote_memory   BOOLEAN                      NOT NULL DEFAULT FALSE,
+    project_entity_id    UUID,
     scope_path           TEXT,
+    tenant               TEXT                         NOT NULL DEFAULT 'default',
     meta                 JSONB                        DEFAULT '{}',
     opsvault_file_id     UUID,
     opsvault_incident_id UUID,
     discovered_at        TIMESTAMPTZ                  NOT NULL DEFAULT now(),
-    updated_at           TIMESTAMPTZ                  NOT NULL DEFAULT now()
+    updated_at           TIMESTAMPTZ                  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_artifact_tenant_source_key UNIQUE (tenant, source_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifact_source_type
@@ -130,6 +134,12 @@ CREATE INDEX IF NOT EXISTS idx_artifact_can_evict_hot
     ON preserve.artifact (can_evict_hot) WHERE can_evict_hot = FALSE;
 CREATE INDEX IF NOT EXISTS idx_artifact_scope_path
     ON preserve.artifact (scope_path);
+CREATE INDEX IF NOT EXISTS idx_artifact_project_entity
+    ON preserve.artifact (project_entity_id);
+CREATE INDEX IF NOT EXISTS idx_artifact_tenant
+    ON preserve.artifact (tenant);
+CREATE INDEX IF NOT EXISTS idx_artifact_priority
+    ON preserve.artifact (priority) WHERE priority <= 3;
 
 
 -- 2.2 segment  (evidence spans)
@@ -143,7 +153,9 @@ CREATE TABLE IF NOT EXISTS preserve.segment (
     ts_end              TIMESTAMPTZ,
     section_label       TEXT,
     content             TEXT          NOT NULL,
+    project_entity_id   UUID,
     scope_path          TEXT,
+    tenant              TEXT          NOT NULL DEFAULT 'default',
     source_sha256       TEXT          NOT NULL,
     source_relpath      TEXT,
     archive_member_path TEXT,
@@ -168,6 +180,10 @@ CREATE INDEX IF NOT EXISTS idx_segment_section_label
     ON preserve.segment (section_label);
 CREATE INDEX IF NOT EXISTS idx_segment_scope_path
     ON preserve.segment (scope_path);
+CREATE INDEX IF NOT EXISTS idx_segment_project_entity
+    ON preserve.segment (project_entity_id);
+CREATE INDEX IF NOT EXISTS idx_segment_tenant
+    ON preserve.segment (tenant);
 
 
 -- 2.3 extraction_run
@@ -198,6 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_extraction_run_pipeline_model
 -- 2.4 entity
 CREATE TABLE IF NOT EXISTS preserve.entity (
     entity_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant              TEXT          NOT NULL DEFAULT 'default',
     entity_type         preserve.entity_type NOT NULL,
     canonical_name      TEXT          NOT NULL,
     aliases             JSONB         DEFAULT '[]',
@@ -205,7 +222,7 @@ CREATE TABLE IF NOT EXISTS preserve.entity (
     first_seen_at       TIMESTAMPTZ   DEFAULT now(),
     last_seen_at        TIMESTAMPTZ   DEFAULT now(),
     embedding           vector(384),
-    UNIQUE (entity_type, canonical_name)
+    CONSTRAINT uq_entity_tenant_type_name UNIQUE (tenant, entity_type, canonical_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_type
@@ -214,6 +231,8 @@ CREATE INDEX IF NOT EXISTS idx_entity_name
     ON preserve.entity (canonical_name);
 CREATE INDEX IF NOT EXISTS idx_entity_embedding
     ON preserve.entity USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX IF NOT EXISTS idx_entity_tenant
+    ON preserve.entity (tenant);
 
 
 -- 2.5 project_service_map
@@ -241,7 +260,9 @@ CREATE TABLE IF NOT EXISTS preserve.episode (
     outcome               TEXT,
     summary               TEXT,
     primary_artifact_id   UUID          REFERENCES preserve.artifact(artifact_id),
+    project_entity_id     UUID          REFERENCES preserve.entity(entity_id),
     scope_path            TEXT,
+    tenant                TEXT          NOT NULL DEFAULT 'default',
     embedding             vector(384),
     fts                   TSVECTOR GENERATED ALWAYS AS (
                             to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,''))
@@ -253,12 +274,16 @@ CREATE INDEX IF NOT EXISTS idx_episode_type_start
     ON preserve.episode (episode_type, start_at);
 CREATE INDEX IF NOT EXISTS idx_episode_artifact
     ON preserve.episode (primary_artifact_id);
+CREATE INDEX IF NOT EXISTS idx_episode_project_entity
+    ON preserve.episode (project_entity_id);
 CREATE INDEX IF NOT EXISTS idx_episode_fts
     ON preserve.episode USING GIN (fts);
 CREATE INDEX IF NOT EXISTS idx_episode_embedding
     ON preserve.episode USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 CREATE INDEX IF NOT EXISTS idx_episode_scope_path
     ON preserve.episode (scope_path);
+CREATE INDEX IF NOT EXISTS idx_episode_tenant
+    ON preserve.episode (tenant);
 
 
 -- 2.6 event
@@ -289,6 +314,7 @@ CREATE TABLE IF NOT EXISTS preserve.fact (
     subject_entity_id       UUID          NOT NULL REFERENCES preserve.entity(entity_id),
     predicate               TEXT          NOT NULL,
     object_entity_id        UUID          REFERENCES preserve.entity(entity_id),
+    project_entity_id       UUID          REFERENCES preserve.entity(entity_id),
     object_value            JSONB,
     fact_kind               preserve.fact_kind          NOT NULL,
     assertion_class         preserve.assertion_class    NOT NULL DEFAULT 'single_source_llm',
@@ -302,6 +328,8 @@ CREATE TABLE IF NOT EXISTS preserve.fact (
     episode_id              UUID          REFERENCES preserve.episode(episode_id),
     created_run_id          UUID          NOT NULL REFERENCES preserve.extraction_run(run_id),
     scope_path              TEXT,
+    priority                INTEGER       NOT NULL DEFAULT 5,
+    tenant                  TEXT          NOT NULL DEFAULT 'default',
     embedding               vector(384),
     fts                     TSVECTOR GENERATED ALWAYS AS (
                               to_tsvector('english', predicate || ' ' || coalesce(object_value::text, ''))
@@ -321,6 +349,8 @@ CREATE INDEX IF NOT EXISTS idx_fact_fingerprint
     ON preserve.fact (canonical_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_fact_episode
     ON preserve.fact (episode_id);
+CREATE INDEX IF NOT EXISTS idx_fact_project_entity
+    ON preserve.fact (project_entity_id);
 CREATE INDEX IF NOT EXISTS idx_fact_fts
     ON preserve.fact USING GIN (fts);
 CREATE INDEX IF NOT EXISTS idx_fact_embedding
@@ -329,6 +359,12 @@ CREATE INDEX IF NOT EXISTS idx_fact_assertion_class
     ON preserve.fact (assertion_class);
 CREATE INDEX IF NOT EXISTS idx_fact_scope_path
     ON preserve.fact (scope_path);
+CREATE INDEX IF NOT EXISTS idx_fact_tenant
+    ON preserve.fact (tenant);
+CREATE INDEX IF NOT EXISTS idx_fact_tenant_fingerprint
+    ON preserve.fact (tenant, canonical_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_fact_priority
+    ON preserve.fact (priority) WHERE priority <= 3;
 
 
 -- 2.8 fact_evidence
@@ -359,7 +395,9 @@ CREATE TABLE IF NOT EXISTS preserve.memory (
     memory_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     memory_type           preserve.memory_type,
     scope_entity_id       UUID          REFERENCES preserve.entity(entity_id),
-    fingerprint           TEXT          UNIQUE,
+    project_entity_id     UUID          REFERENCES preserve.entity(entity_id),
+    tenant                TEXT          NOT NULL DEFAULT 'default',
+    fingerprint           TEXT,
     title                 TEXT,
     narrative             TEXT,
     support_count         INTEGER       DEFAULT 0,
@@ -372,18 +410,23 @@ CREATE TABLE IF NOT EXISTS preserve.memory (
     model_name            TEXT,
     prompt_version        TEXT,
     scope_path            TEXT,
+    priority              INTEGER       NOT NULL DEFAULT 5,
+    last_supported_at     TIMESTAMPTZ,
     embedding             vector(384),
     fts                   TSVECTOR GENERATED ALWAYS AS (
                             to_tsvector('english', title || ' ' || narrative)
                           ) STORED,
     created_at            TIMESTAMPTZ   DEFAULT now(),
-    updated_at            TIMESTAMPTZ   DEFAULT now()
+    updated_at            TIMESTAMPTZ   DEFAULT now(),
+    CONSTRAINT uq_memory_tenant_fingerprint UNIQUE (tenant, fingerprint)
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_type
     ON preserve.memory (memory_type);
 CREATE INDEX IF NOT EXISTS idx_memory_scope_entity
     ON preserve.memory (scope_entity_id);
+CREATE INDEX IF NOT EXISTS idx_memory_project_entity
+    ON preserve.memory (project_entity_id);
 CREATE INDEX IF NOT EXISTS idx_memory_lifecycle
     ON preserve.memory (lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_memory_validity_range
@@ -394,6 +437,10 @@ CREATE INDEX IF NOT EXISTS idx_memory_embedding
     ON preserve.memory USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 CREATE INDEX IF NOT EXISTS idx_memory_scope_path
     ON preserve.memory (scope_path);
+CREATE INDEX IF NOT EXISTS idx_memory_tenant
+    ON preserve.memory (tenant);
+CREATE INDEX IF NOT EXISTS idx_memory_priority
+    ON preserve.memory (priority) WHERE priority <= 3;
 
 
 -- 2.10 memory_support

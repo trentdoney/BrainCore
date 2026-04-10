@@ -165,7 +165,7 @@ async function resolveEntity(
   const [row] = await tx`
     INSERT INTO preserve.entity (canonical_name, entity_type, first_seen_at, last_seen_at, tenant)
     VALUES (${name}, ${entityType}::preserve.entity_type, now(), now(), ${config.tenant})
-    ON CONFLICT (entity_type, canonical_name) DO UPDATE SET
+    ON CONFLICT (tenant, entity_type, canonical_name) DO UPDATE SET
       last_seen_at = now()
     RETURNING entity_id
   `;

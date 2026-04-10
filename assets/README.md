@@ -1,20 +1,21 @@
 # BrainCore launch assets
 
-The five launch visuals are committed in this repository.
+The current BrainCore visuals are committed in this repository. Files marked `Active` are used by the README or GitHub presentation layer in this branch.
 
-| File | Dimensions | Format | README placement | Source |
+| File | Status | Dimensions | Format | Usage |
 |---|---|---|---|---|
-| `logo.svg` | 280 by 280 | SVG | Hero block | Hand-authored SVG |
-| `og.png` | 1200 by 630 | PNG | GitHub social preview | Rendered from the final launch proof strip |
-| `architecture.svg` | 1400 by 800 | SVG | Architecture section | Hand-authored SVG |
-| `dashboard.png` | 1080 by 677 | PNG | Pipeline section | Sourced from the contributor screenshot and sanitized |
-| `README.md` | n/a | Markdown | Not embedded | This file |
+| `logo-square.jpg` | Active | 500 by 500 | JPEG | README hero block |
+| `logo-horizontal.png` | Active | 600 by 70 | PNG | Alternate wordmark |
+| `og.jpg` | Active | 1200 by 690 | JPEG | GitHub social preview |
+| `architecture.jpg` | Active | 1200 by 690 | JPEG | README architecture section |
+| `dashboard.png` | Active | 1080 by 677 | PNG | README pipeline section |
+| `README.md` | Reference | n/a | Markdown | Asset manifest |
 
 Notes:
 
 - All visuals avoid hostnames, IP addresses, internal paths, and private
   metadata
-- The dashboard image is sanitized and should contain no EXIF
-- SVG files are hand-authored and validate as XML
-- The OG image uses the production launch metrics already committed in
-  the benchmark artifacts
+- The square logo is now the active README hero image
+- The architecture image is now the active README architecture asset
+- The dashboard image is the active pipeline screenshot
+- The social preview uses the `v1` image

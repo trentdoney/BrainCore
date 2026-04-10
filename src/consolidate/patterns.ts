@@ -7,6 +7,7 @@
 
 import type postgres from "postgres";
 import { createHash } from "crypto";
+import { config } from "../config";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export async function findPatternCandidates(
       LEFT JOIN preserve.entity e_proj ON f.project_entity_id = e_proj.entity_id
       WHERE f.assertion_class IN ('deterministic', 'human_curated', 'corroborated_llm')
         AND f.current_status = 'active'
+        AND f.tenant = ${config.tenant}
         AND (e_proj.entity_id IS NULL OR COALESCE(e_proj.attrs->>'status', 'active') != 'archived')
     ),
     grouped AS (

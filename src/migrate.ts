@@ -9,6 +9,8 @@ export const MIGRATION_FILES = [
   "006_source_type_values.sql",
   "007_eval_run.sql",
   "008_eval_case.sql",
+  "009_schema_alignment.sql",
+  "010_tenant_isolation.sql",
 ] as const;
 
 type Step =

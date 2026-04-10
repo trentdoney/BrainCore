@@ -56,7 +56,9 @@ jobs:
 
       - name: Compose release DSN
         run: |
-          echo "BRAINCORE_TEST_DSN=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" >> "$GITHUB_ENV"
+          DSN="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB"
+          echo "BRAINCORE_TEST_DSN=$DSN" >> "$GITHUB_ENV"
+          echo "BRAINCORE_POSTGRES_DSN=$DSN" >> "$GITHUB_ENV"
 
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client

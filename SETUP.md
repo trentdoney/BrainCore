@@ -5,11 +5,17 @@
 - [Bun](https://bun.sh/) v1.1+ (JavaScript/TypeScript runtime)
 - [PostgreSQL](https://www.postgresql.org/) 15+ with [pgvector](https://github.com/pgvector/pgvector) extension
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) (optional, for LLM fallback)
-- Python 3.10+ with `psycopg`, `pgvector`, `requests`, `numpy` (for embedding scripts)
+- Python 3.11+ with `psycopg`, `pgvector`, `requests`, `numpy` (for retrieval and helper scripts)
 
 ## Quick Setup with Docker
 
 ```bash
+## Install repo dependencies
+bun install
+python -m venv .venv
+source .venv/bin/activate
+pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests
+
 # Start PostgreSQL with pgvector (uses credentials from examples/docker-compose.yml)
 docker compose -f examples/docker-compose.yml up -d
 
@@ -27,19 +33,11 @@ sleep 5
 cp .env.example .env
 $EDITOR .env
 
-# Source the .env so BRAINCORE_POSTGRES_DSN is available to psql in this shell
+# Source the .env so BRAINCORE_POSTGRES_DSN is available in this shell
 set -a && . ./.env && set +a
 
-# Initialize schema
-psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql
-
-# Seed entities (customize first)
-psql "$BRAINCORE_POSTGRES_DSN" -f sql/003_seed_entities.sql
-
-# Optionally seed example projects
-cp sql/004_seed_projects.example.sql sql/004_seed_projects.sql
-# Edit sql/004_seed_projects.sql with your projects
-psql "$BRAINCORE_POSTGRES_DSN" -f sql/004_seed_projects.sql
+# Apply the full migration set
+bun src/cli.ts migrate
 ```
 
 ## Manual PostgreSQL Setup
@@ -61,13 +59,21 @@ GRANT ALL ON SCHEMA preserve TO braincore;
 Then set `BRAINCORE_POSTGRES_DSN` in your environment (see `.env.example` for the expected format) and run the schema migration:
 
 ```bash
-psql "$BRAINCORE_POSTGRES_DSN" -f sql/001_preserve_schema.sql
+bun install
+python -m venv .venv
+source .venv/bin/activate
+pip install 'psycopg[binary]>=3.1' psycopg-pool pyyaml numpy requests
+bun src/cli.ts migrate
 ```
 
-## Install Dependencies
+## Optional example project seed
+
+If you want a small project scaffold for local exploration, load the example seed after the main migration path:
 
 ```bash
-bun install
+cp sql/004_seed_projects.example.sql sql/004_seed_projects.sql
+$EDITOR sql/004_seed_projects.sql
+psql "$BRAINCORE_POSTGRES_DSN" -f sql/004_seed_projects.sql
 ```
 
 ## Configuration

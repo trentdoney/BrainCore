@@ -4,33 +4,33 @@ All notable changes to BrainCore are documented in this file. This project adher
 
 ## [1.1.4] — 2026-04-09
 
-Truth-surface hardening release. Closes blockers BL-1 through BL-12 identified during the public-launch readiness review. No production behavior changes; this release lands alongside the public GitHub launch.
+Public launch hardening release. This version makes the repository self-contained for first-time setup, aligns the open-source schema with the shipped CLI and evaluation flows, and prepares the repo for a clean public release.
 
 ### Added
-- **Example MCP server** (`examples/mcp_server/`): minimal reference implementation that imports from `mcp/memory_search.py` and exposes the retrieval tool via FastMCP, with a `README.md`, `requirements.txt`, and smoke-runnable entrypoint. Closes **BL-1** (no in-repo example of how to call BrainCore as an MCP server).
-- **Migration 006** (`sql/006_source_type_values.sql`): idempotent `ALTER TYPE preserve.source_type ADD VALUE IF NOT EXISTS` statements for every source type inserted by `src/cli.ts` (`claude_plan`, `claude_session`, `codex_session`, `codex_shared`, `config_diff`, `device_log`, `discord_conversation`, `monitoring_alert`, `opsvault_incident`, `pai_memory`, `project_doc`, `telegram_chat`). Closes **BL-2** (enum drift between schema baseline and runtime inserts).
-- **Migration 007** (`sql/007_eval_run.sql`): creates `preserve.eval_run` table referenced by `bun src/cli.ts eval --run` and `src/eval/runner.ts`. Columns match the INSERT shape in `runner.ts` and the SELECT shape in `cli.ts`. Closes **BL-3** (eval CLI crashed on a missing table).
-- **Migration 008** (`sql/008_eval_case.sql`): creates `preserve.eval_case` gold-set table referenced by `src/eval/gold.ts:loadGoldSet` and iterated by `src/eval/runner.ts:runEval`. Columns (`eval_case_id`, `artifact_id`, `gold_labels`, `notes`, `source_type`, `created_at`) reverse-engineered from the `SELECT` shape in `gold.ts:13` and the `EvalCase` interface in `src/eval/types.ts`. Foreign key on `artifact_id → preserve.artifact(artifact_id)` with `ON DELETE CASCADE`; B-tree indexes on `created_at ASC` (matches `loadGoldSet ORDER BY`) and `artifact_id` (matches `compareExtraction` joins). Brings the preserve table count to **14**. Closes **BL-12** (`bun src/cli.ts eval --run` no longer crashes on a fresh clone with `relation "preserve.eval_case" does not exist`).
-- **`preserve.project_service_map`** inline `CREATE TABLE IF NOT EXISTS` added to the patched `sql/004_seed_projects.example.sql` (BL-10 Fallback B resolution). The table is referenced by `004`'s seed INSERTs but was never defined by any prior migration. Closes **BL-10**.
-- **`mcp/__init__.py`** + **`mcp/embedder.py`**: make the repo-root `mcp/` directory a proper Python package and provide a zero-vector HTTP embedder stub so `from mcp.memory_search import ...` resolves on fresh clones. Closes the second half of **BL-1** (BL-11 namespace collision is worked around in the example server via sys.path scrubbing + importlib bootstrap; a full rename to `braincore/` is deferred to v2.0.0).
-- **`sql/001_preserve_schema.sql` bootstrap patch**: prepends `CREATE SCHEMA IF NOT EXISTS preserve; CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;` so a first-time clone on a fresh pgvector/pg16 container runs all six migrations without manual schema prep. Closes a latent first-time-user crash that SETUP.md never mentioned.
-- **`CHANGELOG.md`** (this file): Keep-a-Changelog scaffold reconstructed from `git log v1.0.0..HEAD` with Added / Changed / Fixed / Removed subsections per release. Part of **BL-5** (version + changelog drift).
+- **Example MCP server** (`examples/mcp_server/`): minimal reference implementation that imports from `mcp/memory_search.py` and exposes the retrieval tool via FastMCP, with a `README.md`, `requirements.txt`, and smoke-runnable entrypoint.
+- **Migration 006** (`sql/006_source_type_values.sql`): idempotent `ALTER TYPE preserve.source_type ADD VALUE IF NOT EXISTS` statements for every source type inserted by `src/cli.ts` (`claude_plan`, `claude_session`, `codex_session`, `codex_shared`, `config_diff`, `device_log`, `discord_conversation`, `monitoring_alert`, `opsvault_incident`, `pai_memory`, `project_doc`, `telegram_chat`).
+- **Migration 007** (`sql/007_eval_run.sql`): creates `preserve.eval_run` table referenced by `bun src/cli.ts eval --run` and `src/eval/runner.ts`. Columns match the INSERT shape in `runner.ts` and the SELECT shape in `cli.ts`.
+- **Migration 008** (`sql/008_eval_case.sql`): creates `preserve.eval_case` gold-set table referenced by `src/eval/gold.ts:loadGoldSet` and iterated by `src/eval/runner.ts:runEval`. Columns (`eval_case_id`, `artifact_id`, `gold_labels`, `notes`, `source_type`, `created_at`) match the shipped evaluation path, with indexes on `created_at` and `artifact_id`. This brings the preserve table count to **14**.
+- **`preserve.project_service_map`** inline `CREATE TABLE IF NOT EXISTS` added to the patched `sql/004_seed_projects.example.sql`. The table is referenced by `004`'s seed INSERTs and is now available in the example project scaffold.
+- **`mcp/__init__.py`** + **`mcp/embedder.py`**: make the repo-root `mcp/` directory a proper Python package and provide a zero-vector HTTP embedder stub so `from mcp.memory_search import ...` resolves on fresh clones.
+- **`sql/001_preserve_schema.sql` bootstrap patch**: prepends `CREATE SCHEMA IF NOT EXISTS preserve; CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;` so a first-time clone on a fresh pgvector/pg16 container runs all six migrations without manual schema prep.
+- **`CHANGELOG.md`** (this file): Keep-a-Changelog scaffold reconstructed from `git log v1.0.0..HEAD` with Added / Changed / Fixed / Removed subsections per release.
 - **Reproducible benchmark harness** under `benchmarks/`: `run_retrieval.py` (12-query canonical runner with auto-seed from `seed_smoke.sql`), `run_grounding.py` (direct-SQL `fact_evidence` rate), `seed_smoke.sql` (synthetic pipeline-regression fixture, honestly framed as circular), `canonical_queries.yaml`, `claims-to-evidence.yaml` (smoke-regression vs production-corpus framing), `verify_tool_index.py` and `verify_claims_to_evidence.py` (self-test gates). These provide the pipeline-regression signal; all README headline retrieval metrics come from a separate production-corpus benchmark committed in a later follow-up.
 - **Launch hardening tests** under `tests/`: six pytest cases exercising the migration deltas (`test_migrations.py` — enum count, `eval_run` existence, preserve table count, `project_service_map` existence) and module import health (`test_status.py`).
 - **Bun smoke test** at `src/__tests__/smoke.test.ts`: two TypeScript cases that import the CLI entrypoint without crashing on missing env vars (stubs `BRAINCORE_POSTGRES_DSN` before dynamic import to avoid the db.ts eager-load finding).
 
 ### Changed
-- **`package.json` version** bumped from `1.0.0` to `1.1.4` to match the tag history. Closes **BL-5** (package.json was pinned at `1.0.0` across four releases).
+- **`package.json` version** bumped from `1.0.0` to `1.1.4` to match the tag history.
 
 ### Fixed
-- **BL-12** — `preserve.eval_case` was referenced by `src/eval/gold.ts:loadGoldSet` (and iterated by `src/eval/runner.ts:runEval`) but no migration in `001`–`007` created it; `bun src/cli.ts eval --run` crashed on a fresh clone with `relation "preserve.eval_case" does not exist`. Fixed by migration `sql/008_eval_case.sql`, which reverse-engineers the column shape from the live `SELECT` in `gold.ts` and the `EvalCase` interface in `src/eval/types.ts`. Other blockers covered under Added above.
+- `preserve.eval_case` is now created by migration `sql/008_eval_case.sql`, so `bun src/cli.ts eval --run` works on a fresh clone without manual schema patching.
 
 ### Removed
 - None.
 
 ## [1.1.3] — 2026-04-09
 
-Codex-approved public release hardening. Documentation / code-quality pass driven by Codex review feedback prior to the public GitHub launch.
+Public repository hardening release. This pass tightens the docs, automation, and public setup surface before the GitHub launch.
 
 ### Added
 - README.md Quick Start rewritten as 8 end-to-end steps runnable against `examples/sample-vault/`.
@@ -104,7 +104,7 @@ Sync-only release. Fixes drift between production and the public `mcp/` copy of 
 
 ## [1.1.0] — 2026-04-09
 
-Pipeline parallelism, priority flags, and tenant scoping. Addresses Aaron Kelly feedback items 1, 3, and 4.
+Platform release focused on pipeline parallelism, priority scoring, and tenant-aware writes.
 
 ### Added
 - **Phase 1 — Pipeline parallelism:** `cron/nightly.sh` rewritten with 5 groups (`A ingest | B archive | C extract | D post | E finalize`), `set -uo pipefail` (no `-e`) for partial success, `run_step` wrapper that captures failures without aborting, flock-based overlap protection, and a `DRY_RUN` mode for safe testing.

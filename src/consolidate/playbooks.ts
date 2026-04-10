@@ -6,6 +6,7 @@
 
 import type postgres from "postgres";
 import { createHash } from "crypto";
+import { config } from "../config";
 
 function playbookFingerprint(subject: string, remediation: string): string {
   const normalized = remediation.toLowerCase().replace(/\s+/g, " ").trim();
@@ -41,6 +42,7 @@ export async function compilePlaybooks(
       LEFT JOIN preserve.episode ep ON f.episode_id = ep.episode_id
       WHERE f.fact_kind = 'remediation'
         AND f.current_status = 'active'
+        AND f.tenant = ${config.tenant}
         AND f.assertion_class IN ('deterministic', 'human_curated', 'corroborated_llm')
         AND (ep.outcome IN ('resolved', 'closed') OR ep.outcome IS NULL)
     )
@@ -66,6 +68,7 @@ export async function compilePlaybooks(
       const [existing] = await tx`
         SELECT memory_id FROM preserve.memory
         WHERE fingerprint = ${fingerprint}
+          AND tenant = ${config.tenant}
         LIMIT 1
       `.catch(() => [undefined]);
 
@@ -75,6 +78,7 @@ export async function compilePlaybooks(
           SET support_count = ${Number(r.occurrence_count)},
               updated_at = now()
           WHERE memory_id = ${existing.memory_id}
+            AND tenant = ${config.tenant}
         `;
         continue;
       }
@@ -89,9 +93,9 @@ export async function compilePlaybooks(
       );
 
       const [scopeEntity] = await tx`
-        INSERT INTO preserve.entity (canonical_name, entity_type, first_seen_at, last_seen_at)
-        VALUES (${r.subject}, 'pattern_scope'::preserve.entity_type, now(), now())
-        ON CONFLICT (entity_type, canonical_name) DO UPDATE SET last_seen_at = now()
+        INSERT INTO preserve.entity (tenant, canonical_name, entity_type, first_seen_at, last_seen_at)
+        VALUES (${config.tenant}, ${r.subject}, 'pattern_scope'::preserve.entity_type, now(), now())
+        ON CONFLICT (tenant, entity_type, canonical_name) DO UPDATE SET last_seen_at = now()
         RETURNING entity_id
       `;
 
@@ -100,7 +104,7 @@ export async function compilePlaybooks(
           memory_type, scope_entity_id, fingerprint, title, narrative,
           support_count, contradiction_count, confidence,
           lifecycle_state, pipeline_version, model_name, prompt_version,
-          scope_path
+          scope_path, tenant
         ) VALUES (
           'playbook'::preserve.memory_type,
           ${scopeEntity.entity_id}::uuid,
@@ -114,7 +118,8 @@ export async function compilePlaybooks(
           '0.1.0',
           'playbook-compiler',
           'consolidate-v1',
-          ${r.scope_path}
+          ${r.scope_path},
+          ${config.tenant}
         )
         RETURNING memory_id
       `;

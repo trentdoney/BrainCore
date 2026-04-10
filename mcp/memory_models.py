@@ -28,6 +28,12 @@ class EvidenceItem(BaseModel):
 # ---------------------------------------------------------------------------
 
 class MemorySearchRequest(BaseModel):
+    """Search request for a tenant-bound MCP process.
+
+    The tenant is fixed by BRAINCORE_TENANT at process start. Searches are
+    exact-tenant and only read rows for that configured tenant.
+    """
+
     query: str
     as_of: Optional[str] = Field(
         default=None,

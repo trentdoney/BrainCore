@@ -1,4 +1,5 @@
 import { sql } from "../db";
+import { config } from "../config";
 
 interface ProjectMatch {
   projectEntityId: string;
@@ -17,12 +18,18 @@ export async function resolveProject(
       FROM preserve.project_service_map psm
       JOIN preserve.entity e ON e.entity_id = psm.project_entity_id
       WHERE psm.service_name = ${svc.toLowerCase()}
+        AND e.tenant = ${config.tenant}
     `;
     if (rows.length > 0) return { projectEntityId: rows[0].entity_id, projectName: rows[0].canonical_name };
   }
   
   // 2. Check tags for known project names
-  const projectEntities = await sql`SELECT entity_id, canonical_name FROM preserve.entity WHERE entity_type = 'project'`;
+  const projectEntities = await sql`
+    SELECT entity_id, canonical_name
+    FROM preserve.entity
+    WHERE tenant = ${config.tenant}
+      AND entity_type = 'project'
+  `;
   for (const tag of tags) {
     const match = projectEntities.find((p: any) => p.canonical_name.toLowerCase() === tag.toLowerCase());
     if (match) return { projectEntityId: match.entity_id, projectName: match.canonical_name };

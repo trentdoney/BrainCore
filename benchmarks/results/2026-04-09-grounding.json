@@ -10,7 +10,7 @@
   "source": "direct fact_evidence count",
   "notes": "Computed directly from SELECT count(DISTINCT fact_id) FROM preserve.fact_evidence / SELECT count(*) FROM preserve.fact. The bun src/cli.ts eval --run subcommand is implemented but does not emit a grounding_rate metric in its eval_run.metrics JSONB payload; its aggregate metrics are entity F1, fact-count ratio, and root-cause / fix-summary match rates. See the module docstring for the full rationale.",
   "metadata": {
-    "generated_at": "2026-04-09T21:22:36.560429+00:00",
+    "generated_at": "2026-04-10T12:15:02.150142+00:00",
     "python": "3.12.3",
     "dsn_host": "localhost"
   }

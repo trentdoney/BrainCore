@@ -17,6 +17,8 @@ backup/
 *.bak*
 *.log
 benchmark-results.json
+__pycache__/
+*.pyc
 
 # OS files
 .DS_Store
