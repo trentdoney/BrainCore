@@ -10,6 +10,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { config } from "../config";
+import { redactSecrets } from "../security/secret-scanner";
 
 const PUBLISH_DIR = process.env.BRAINCORE_PUBLISH_DIR || "./data/memory/PRESERVED";
 

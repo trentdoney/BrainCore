@@ -7,6 +7,7 @@ and writes the resulting 384-dim vectors back to PostgreSQL.
 
 import sys
 import os
+import re
 import time
 import psycopg
 import requests
@@ -17,12 +18,32 @@ DSN = os.environ.get("BRAINCORE_POSTGRES_DSN")
 if not DSN:
     raise SystemExit("BRAINCORE_POSTGRES_DSN is not set")
 EMBED_URL = os.environ.get("BRAINCORE_EMBED_URL", "http://localhost:8900/embed")
+BRAINCORE_EMBED_AUTH_TOKEN = os.environ.get("BRAINCORE_EMBED_AUTH_TOKEN", "")
 BATCH_SIZE = 32
+
+SECRET_PATTERNS = [
+    (re.compile(r"(?:authorization\s*:\s*)?bearer\s+[a-zA-Z0-9._\-]{20,}", re.I), "[REDACTED:bearer_token]"),
+    (re.compile(r"\beyJ[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+"), "[REDACTED:jwt]"),
+    (re.compile(r"(?:session(?:id)?|cookie|refresh[_-]?token)\s*[:=]\s*['\"]?([^\s'\";]{16,})['\"]?", re.I), "[REDACTED:session_secret]"),
+    (re.compile(r"-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----"), "[REDACTED:private_key]"),
+    (re.compile(r"(?:postgresql|mysql|mongodb|redis):\/\/[^\s]+", re.I), "[REDACTED:connection_string]"),
+    (re.compile(r"(?:sk-|pk_live_|pk_test_|sk_live_|sk_test_|ghp_|gho_|github_pat_|xox[baprs]-|ya29\.|hf_[A-Za-z0-9]{20,}|glpat-|sg\.[A-Za-z0-9._-]{20,})[a-zA-Z0-9_\-\.]{10,}"), "[REDACTED:vendor_key]"),
+]
+
+
+def redact_text(text: str) -> str:
+    redacted = text
+    for pattern, replacement in SECRET_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
     """Send a batch of texts to the embed endpoint and return embeddings."""
-    resp = requests.post(EMBED_URL, json={"texts": texts}, timeout=60)
+    headers = {}
+    if BRAINCORE_EMBED_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {BRAINCORE_EMBED_AUTH_TOKEN}"
+    resp = requests.post(EMBED_URL, json={"texts": texts}, headers=headers, timeout=60)
     resp.raise_for_status()
     return resp.json()["embeddings"]
 
@@ -45,7 +66,7 @@ def backfill_table(conn, table: str, id_col: str, text_expr: str, label: str) ->
         batch = rows[i : i + BATCH_SIZE]
         ids = [r[0] for r in batch]
         # Ensure texts are non-None strings, truncate very long ones to 8K chars
-        texts = [(str(r[1]) if r[1] else "") [:8000] for r in batch]
+        texts = [redact_text((str(r[1]) if r[1] else "")[:8000]) for r in batch]
 
         try:
             embeddings = embed_batch(texts)

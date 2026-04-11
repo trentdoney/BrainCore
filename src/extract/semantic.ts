@@ -8,6 +8,7 @@
  */
 
 import { LLMClient, type LLMResponse } from "../llm/client";
+import { config } from "../config";
 import {
   INCIDENT_SYSTEM_PROMPT,
   buildIncidentUserPrompt,
@@ -45,9 +46,75 @@ export interface SemanticResult {
   lessons: Lesson[];
   questions: Question[];
   model: string;
-  provider: "vllm" | "claude-cli";
+  provider: "vllm" | "claude-cli" | "skipped";
   durationMs: number;
   warnings: string[];
+  reviewReasons: string[];
+  redactionDetected: boolean;
+  truncated: boolean;
+}
+
+const PROMPT_INJECTION_MARKERS = [
+  "ignore previous",
+  "ignore above",
+  "system:",
+  "developer:",
+  "assistant:",
+  "you are now",
+  "act as",
+  "follow these instructions instead",
+  "<|im_start|>",
+  "<|system|>",
+  "begin prompt",
+  "role:",
+];
+
+function unique(items: string[]): string[] {
+  return [...new Set(items)];
+}
+
+function findPromptInjectionMarker(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const marker of PROMPT_INJECTION_MARKERS) {
+    if (lower.includes(marker)) {
+      return marker;
+    }
+  }
+  return null;
+}
+
+function capSegmentsForPrompt(segments: SegmentInput[]): {
+  segments: SegmentInput[];
+  truncated: boolean;
+} {
+  const kept: SegmentInput[] = [];
+  let totalChars = 0;
+  let truncated = false;
+
+  for (const seg of segments) {
+    if (kept.length >= config.limits.maxSegmentsPerPrompt) {
+      truncated = true;
+      break;
+    }
+
+    const remaining = config.limits.maxPromptChars - totalChars;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+
+    if (seg.content.length <= remaining) {
+      kept.push(seg);
+      totalChars += seg.content.length;
+      continue;
+    }
+
+    kept.push({ ...seg, content: seg.content.slice(0, remaining) });
+    truncated = true;
+    break;
+  }
+
+  return { segments: kept, truncated };
 }
 
 // ── Main Extraction ────────────────────────────────────────────────────────────
@@ -62,14 +129,48 @@ export async function extractSemantic(
   llmClient: LLMClient,
   opts?: { useClaude?: boolean },
 ): Promise<SemanticResult | null> {
-  // Redact secrets from segment content before sending to LLM
-  const redactedSegments = segments.map((s) => ({
-    ...s,
-    content: redactSecrets(s.content).redacted,
-  }));
+  const promptInjectionMarker = findPromptInjectionMarker(
+    segments.map((s) => s.content).join("\n\n"),
+  );
+  if (promptInjectionMarker) {
+    return {
+      facts: [],
+      lessons: [],
+      questions: [],
+      model: "prompt-injection-guard",
+      provider: "skipped",
+      durationMs: 0,
+      warnings: [`Prompt injection heuristic matched: ${promptInjectionMarker}`],
+      reviewReasons: ["prompt_injection_suspected"],
+      redactionDetected: false,
+      truncated: false,
+    };
+  }
+
+  const redactedSegments = segments.map((s) => {
+    const redaction = redactSecrets(s.content);
+    return {
+      ...s,
+      content: redaction.redacted,
+      secretsFound: redaction.secretsFound,
+    };
+  });
+  const redactionDetected = redactedSegments.some((s) => s.secretsFound > 0);
+  const { segments: cappedSegments, truncated } = capSegmentsForPrompt(
+    redactedSegments.map(({ secretsFound: _secretsFound, ...seg }) => seg),
+  );
 
   // Build prompt
-  const userMessage = buildIncidentUserPrompt(redactedSegments, deterministicFacts);
+  const userMessage = buildIncidentUserPrompt(cappedSegments, deterministicFacts);
+  const reviewReasons: string[] = [];
+  const warnings: string[] = [];
+  if (redactionDetected) {
+    reviewReasons.push("redaction_detected");
+  }
+  if (truncated) {
+    reviewReasons.push("semantic_truncated");
+    warnings.push("Semantic input was truncated to fit prompt limits");
+  }
 
   // Call LLM — complete() now always returns a result (vLLM or Haiku fallback)
   let response: LLMResponse;
@@ -103,16 +204,20 @@ export async function extractSemantic(
   );
 
   // Parse and verify
-  const { valid, errors, warnings } = await verify(response.content);
+  const verification = await verify(response.content);
+  const verifyWarnings = verification.warnings;
+  const errors = verification.errors;
+  const valid = verification.valid;
   if (!valid) {
     console.error("  [semantic] LLM output failed Zod validation:");
     for (const err of errors) console.error(`    - ${err}`);
     return null;
   }
 
-  if (warnings.length > 0) {
+  if (verifyWarnings.length > 0) {
     console.error("  [semantic] Warnings:");
-    for (const w of warnings) console.error(`    - ${w}`);
+    for (const w of verifyWarnings) console.error(`    - ${w}`);
+    reviewReasons.push("verify_warning");
   }
 
   // Tag all facts with single_source_llm assertion class
@@ -141,6 +246,9 @@ export async function extractSemantic(
     model: response.model,
     provider: response.provider,
     durationMs: response.durationMs,
-    warnings,
+    warnings: [...warnings, ...verifyWarnings],
+    reviewReasons: unique(reviewReasons),
+    redactionDetected,
+    truncated,
   };
 }

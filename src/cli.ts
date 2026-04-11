@@ -343,6 +343,21 @@ const commands: Record<string, () => Promise<void>> = {
         console.log(`    Path: ${b.original_path}`);
       }
     }
+
+    const reviewReasons = await sql`
+      SELECT reason, count(*) AS n
+      FROM preserve.review_queue
+      WHERE status = 'pending'
+      GROUP BY reason
+      ORDER BY n DESC, reason ASC
+    `.catch(() => [] as any[]);
+
+    if (reviewReasons.length > 0) {
+      console.log("\n  Pending review reasons:");
+      for (const row of reviewReasons) {
+        console.log(`    ${row.reason}: ${row.n}`);
+      }
+    }
     await sql.end();
   },
 
@@ -1026,6 +1041,7 @@ async function extractSingleIncident(
   incidentPath: string,
   opts: ExtractOpts,
 ): Promise<void> {
+  const { config } = await import("./config");
   const { parseDeterministic } = await import("./extract/deterministic");
   const { extractSemantic } = await import("./extract/semantic");
   const { LLMClient } = await import("./llm/client");
@@ -1038,6 +1054,94 @@ async function extractSingleIncident(
   const slug = bn(incidentPath);
 
   console.log(`\n=== BrainCore Extract: ${slug} ===\n`);
+
+  const notesPath = exSync(jn(incidentPath, "notes.md"))
+    ? jn(incidentPath, "notes.md")
+    : jn(incidentPath, "incident.md");
+
+  let sourceContent: string;
+  let fileSha256: string;
+  let fileSize: number;
+  try {
+    sourceContent = readFileSync(notesPath, "utf-8");
+    fileSha256 = createHash("sha256").update(sourceContent, "utf-8").digest("hex");
+    fileSize = statSync(notesPath).size;
+  } catch (e: any) {
+    console.error(`  Cannot read source file: ${e.message}`);
+    await sql.end();
+    return;
+  }
+
+  if (fileSize > config.limits.maxSourceBytes) {
+    console.log(`[1/4] Source artifact exceeds ${config.limits.maxSourceBytes} bytes. Extraction skipped.`);
+    if (opts.dryRun) {
+      console.log("\n[2/4] Dry run complete. No data written.");
+      return;
+    }
+
+    const connected = await testConnection();
+    if (!connected) {
+      console.error("  Database connection failed. Cannot queue oversized artifact for review.");
+      process.exit(1);
+    }
+
+    let artifactId: string;
+    const fallbackScope = `incident:${slug}`;
+    const existing = await sql`
+      SELECT artifact_id FROM preserve.artifact
+      WHERE source_key = ${slug}
+      LIMIT 1
+    `.catch(() => [] as any[]);
+
+    if (existing.length > 0) {
+      artifactId = existing[0].artifact_id;
+    } else {
+      const [newArtifact] = await sql`
+        INSERT INTO preserve.artifact (
+          source_key, source_type, original_path, sha256, size_bytes,
+          scope_path, can_query_raw, can_promote_memory, preservation_state
+        ) VALUES (
+          ${slug},
+          'opsvault_incident'::preserve.source_type,
+          ${incidentPath},
+          ${fileSha256},
+          ${fileSize},
+          ${fallbackScope},
+          false, false,
+          'pending_escalation'::preserve.preservation_state
+        )
+        RETURNING artifact_id
+      `;
+      artifactId = newArtifact.artifact_id;
+    }
+
+    await sql`
+      UPDATE preserve.artifact
+      SET preservation_state = 'pending_escalation'::preserve.preservation_state,
+          scope_path = COALESCE(scope_path, ${fallbackScope}),
+          updated_at = now()
+      WHERE artifact_id = ${artifactId}::uuid
+    `;
+    await sql`
+      INSERT INTO preserve.review_queue (target_type, target_id, reason, status)
+      SELECT
+        'artifact',
+        ${artifactId}::uuid,
+        'source_too_large',
+        'pending'::preserve.review_status
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM preserve.review_queue rq
+        WHERE rq.target_type = 'artifact'
+          AND rq.target_id = ${artifactId}::uuid
+          AND rq.reason = 'source_too_large'
+          AND rq.status = 'pending'
+      )
+    `;
+    console.log(`  Queued artifact ${artifactId} for human review (source_too_large).`);
+    await sql.end();
+    return;
+  }
 
   console.log("[1/4] Deterministic extraction...");
   const deterministic = await parseDeterministic(incidentPath);
@@ -1080,6 +1184,10 @@ async function extractSingleIncident(
       console.log(`  Open questions:    ${semantic.questions.length}`);
       console.log(`  Model:             ${semantic.provider}/${semantic.model}`);
       console.log(`  Duration:          ${semantic.durationMs}ms`);
+      if (semantic.warnings.length > 0) {
+        console.log("  Semantic warnings:");
+        for (const warning of semantic.warnings) console.log(`    - ${warning}`);
+      }
     } else {
       console.log("  Semantic extraction skipped (no LLM available).");
     }
@@ -1098,23 +1206,6 @@ async function extractSingleIncident(
   if (!connected) {
     console.error("  Database connection failed. Cannot load extraction.");
     process.exit(1);
-  }
-
-  const notesPath = exSync(jn(incidentPath, "notes.md"))
-    ? jn(incidentPath, "notes.md")
-    : jn(incidentPath, "incident.md");
-
-  let sourceContent: string;
-  let fileSha256: string;
-  let fileSize: number;
-  try {
-    sourceContent = readFileSync(notesPath, "utf-8");
-    fileSha256 = createHash("sha256").update(sourceContent, "utf-8").digest("hex");
-    fileSize = statSync(notesPath).size;
-  } catch (e: any) {
-    console.error(`  Cannot read source file: ${e.message}`);
-    await sql.end();
-    return;
   }
 
   let artifactId: string;

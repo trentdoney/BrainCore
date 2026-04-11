@@ -28,7 +28,12 @@ interface Config {
     healthTimeout: number;
     requestTimeout: number;
   };
-  embed: { url: string };
+  embed: { url: string; authToken: string };
+  limits: {
+    maxSourceBytes: number;
+    maxPromptChars: number;
+    maxSegmentsPerPrompt: number;
+  };
   telegram: { botToken: string; chatId: string };
   grafana: { baseUrl: string; apiKey: string };
 }
@@ -58,6 +63,12 @@ function buildConfig(): Config {
     },
     embed: {
       url: env("BRAINCORE_EMBED_URL", "http://localhost:8900/embed"),
+      authToken: env("BRAINCORE_EMBED_AUTH_TOKEN", ""),
+    },
+    limits: {
+      maxSourceBytes: parseInt(env("BRAINCORE_MAX_SOURCE_BYTES", "5242880"), 10),
+      maxPromptChars: parseInt(env("BRAINCORE_MAX_PROMPT_CHARS", "120000"), 10),
+      maxSegmentsPerPrompt: parseInt(env("BRAINCORE_MAX_SEGMENTS_PER_PROMPT", "50"), 10),
     },
     telegram: {
       botToken: env("BRAINCORE_TELEGRAM_BOT_TOKEN", ""),
@@ -92,7 +103,36 @@ export const config = new Proxy({} as Config, {
 });
 
 /** Known device names for entity extraction (customizable) */
-export const knownDevices = env("BRAINCORE_KNOWN_DEVICES", "server-a,server-b,workstation").split(",").map(d => d.trim());
+export const knownDevices = env("BRAINCORE_KNOWN_DEVICES", "server-a,server-b,workstation")
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
 
-/** Regex pattern for device name matching */
-export const devicePattern = new RegExp(`\\b(${knownDevices.join("|")})\\b`, "gi");
+function isTokenBoundary(char: string | undefined): boolean {
+  return !char || !/[a-z0-9_]/i.test(char);
+}
+
+export function findKnownDeviceRefs(text: string): string[] {
+  const lower = text.toLowerCase();
+  const seen = new Set<string>();
+  const devices: string[] = [];
+
+  for (const device of knownDevices) {
+    let idx = lower.indexOf(device);
+    while (idx !== -1) {
+      const before = idx > 0 ? lower[idx - 1] : undefined;
+      const after = lower[idx + device.length];
+      if (isTokenBoundary(before) && isTokenBoundary(after)) {
+        const normalized = device.replace(/\s+/g, "_");
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          devices.push(normalized);
+        }
+        break;
+      }
+      idx = lower.indexOf(device, idx + device.length);
+    }
+  }
+
+  return devices;
+}

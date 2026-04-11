@@ -28,6 +28,10 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 
 alert() {
   local msg="$1"
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "DRY: would alert: $msg"
+    return 0
+  fi
   log "ALERT: $msg"
   if [ -n "${BRAINCORE_TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${BRAINCORE_TELEGRAM_CHAT_ID:-}" ]; then
     curl -sf "https://api.telegram.org/bot${BRAINCORE_TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -54,9 +58,40 @@ run_step() {
 # Python interpreter (override via BRAINCORE_PYTHON env var)
 PYTHON="${BRAINCORE_PYTHON:-python3}"
 
+resolve_bun() {
+  if [ -n "${BRAINCORE_BUN:-}" ]; then
+    if [ -x "$BRAINCORE_BUN" ]; then
+      printf '%s\n' "$BRAINCORE_BUN"
+      return 0
+    fi
+    printf 'BRAINCORE_BUN is set but not executable: %s\n' "$BRAINCORE_BUN" >&2
+    return 1
+  fi
+
+  local home_bun="${HOME:-}/.bun/bin/bun"
+  if [ -n "${HOME:-}" ] && [ -x "$home_bun" ]; then
+    printf '%s\n' "$home_bun"
+    return 0
+  fi
+
+  command -v bun
+}
+
 cd "$BRAINCORE"
 log "=== BrainCore nightly pipeline v2 starting ==="
-log "Mode: ${DRY_RUN:+DRY_RUN}${DRY_RUN:-LIVE}"
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  log "Mode: DRY_RUN"
+else
+  log "Mode: LIVE"
+fi
+
+if ! BUN_BIN="$(resolve_bun 2>>"$LOG")"; then
+  log "FAIL: Bun not available; set BRAINCORE_BUN or install Bun under $HOME/.bun/bin/bun"
+  echo "bun-resolver" >> "$FAIL_FLAGS"
+  alert "Nightly aborted: Bun not available"
+  exit 1
+fi
+log "Bun: $BUN_BIN"
 
 # Group A: Independent ingestion (parallel)
 log "Group A: codex-sync"
@@ -69,31 +104,31 @@ log "Group A complete"
 
 # Group B: Archive pending artifacts
 log "Group B: archive pending"
-run_step "archive" bun src/cli.ts archive --pending
+run_step "archive" "$BUN_BIN" src/cli.ts archive --pending
 
 # Group C: Parallel extraction from all sources
 log "Group C: extraction (parallel)"
-run_step "extract-pending" bun src/cli.ts extract --pending &
-run_step "extract-codex-shared" bun src/cli.ts extract --codex-shared &
-run_step "extract-codex-history" bun src/cli.ts extract --codex-history &
-run_step "extract-discord" bun src/cli.ts extract --discord &
-run_step "extract-telegram" bun src/cli.ts extract --telegram &
-run_step "extract-grafana" bun src/cli.ts extract --grafana &
+run_step "extract-pending" "$BUN_BIN" src/cli.ts extract --pending &
+run_step "extract-codex-shared" "$BUN_BIN" src/cli.ts extract --codex-shared &
+run_step "extract-codex-history" "$BUN_BIN" src/cli.ts extract --codex-history &
+run_step "extract-discord" "$BUN_BIN" src/cli.ts extract --discord &
+run_step "extract-telegram" "$BUN_BIN" src/cli.ts extract --telegram &
+run_step "extract-grafana" "$BUN_BIN" src/cli.ts extract --grafana &
 wait
 log "Group C complete"
 
 # Group D: Post-processing (sequential dependencies)
 log "Group D: post-processing (sequential)"
 run_step "embeddings" $PYTHON scripts/backfill-embeddings.py
-run_step "project-tag" bun src/cli.ts project tag --retag-all
-run_step "consolidate" bun src/cli.ts consolidate --delta
-run_step "publish" bun src/cli.ts publish-notes --changed
+run_step "project-tag" "$BUN_BIN" src/cli.ts project tag --retag-all
+run_step "consolidate" "$BUN_BIN" src/cli.ts consolidate --delta
+run_step "publish" "$BUN_BIN" src/cli.ts publish-notes --changed
 
 # Weekly maintenance (Sundays)
 if [ "$(date +%u)" = "7" ]; then
   log "Weekly maintenance"
-  run_step "vacuum" bun src/cli.ts maintenance --vacuum
-  run_step "stale-detect" bun src/cli.ts consolidate --detect-stale
+  run_step "vacuum" "$BUN_BIN" src/cli.ts maintenance --vacuum
+  run_step "stale-detect" "$BUN_BIN" src/cli.ts consolidate --detect-stale
 fi
 
 # Monthly reindex (1st of month)
@@ -103,7 +138,7 @@ if [ "$(date +%d)" = "01" ]; then
 fi
 
 # Final gate check
-run_step "gate-check" bun src/cli.ts gate-check
+run_step "gate-check" "$BUN_BIN" src/cli.ts gate-check
 
 # Summary
 FAIL_COUNT=$(wc -l < "$FAIL_FLAGS" 2>/dev/null || echo 0)

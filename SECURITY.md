@@ -6,6 +6,7 @@ exposing private infrastructure by default.
 ## Secrets and identifiers
 
 - Do not commit secrets, tokens, passwords, or connection strings.
+- The built-in scanner redacts API keys, bearer tokens, JWTs, cookie/session secrets, connection strings, private keys, GitHub tokens, and common cloud/vendor keys before outbound LLM or embed calls.
 - Do not commit home paths, private IPs, or hostnames that identify the
   local lab.
 - Do not add downstream project names or internal-only service names to
@@ -43,6 +44,19 @@ repository settings and keep the report private until triaged.
 
 BrainCore documents `PostgreSQL 15+ (tested on 16)` for the launch
 surface.
+
+## Review Queue
+
+BrainCore queues pending human review when semantic extraction reports:
+
+- `verify_warning`
+- `redaction_detected`
+- `semantic_truncated`
+- `prompt_injection_suspected`
+- `high_risk_fact_kind`
+- `source_too_large`
+
+Large artifacts can be registered and preserved without full extraction; they are marked for review instead of being pushed through the semantic path.
 
 ## Reference
 

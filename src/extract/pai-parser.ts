@@ -8,6 +8,7 @@ import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join, basename } from "path";
 import { parse as parseYAML } from "yaml";
+import { findKnownDeviceRefs } from "../config";
 import type { DeterministicResult, Entity, Fact, Segment, Episode } from "./deterministic";
 
 const PAI_MEMORY_DIR = process.env.PAI_MEMORY_DIR || "./data/memory";
@@ -217,11 +218,7 @@ function extractReferencedEntities(body: string): Entity[] {
   const entities: Entity[] = [];
   const seen = new Set<string>();
 
-  const devices = (process.env.BRAINCORE_KNOWN_DEVICES || "server-a,server-b,workstation").split(",");
-  const devicePattern = new RegExp("\\b(" + devices.join("|") + ")\\b", "gi");
-  let match;
-  while ((match = devicePattern.exec(body)) !== null) {
-    const name = match[1].toLowerCase().replace(/\s+/g, "_");
+  for (const name of findKnownDeviceRefs(body)) {
     if (!seen.has(name)) {
       seen.add(name);
       entities.push({ name, type: "device" });
@@ -229,6 +226,7 @@ function extractReferencedEntities(body: string): Entity[] {
   }
 
   const servicePattern = /\b(docker|nginx|postgresql|postgres|redis|vllm|braincore|grafana)\b/gi;
+  let match;
   while ((match = servicePattern.exec(body)) !== null) {
     const name = match[1].toLowerCase();
     if (!seen.has(name)) {

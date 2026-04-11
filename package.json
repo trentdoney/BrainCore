@@ -11,7 +11,8 @@
   "scripts": {
     "braincore": "bun run src/cli.ts",
     "lint": "bunx tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "sanitize:check": "bash scripts/pre-push-gate.sh"
   },
   "dependencies": {
     "postgres": "^3.4.5",

@@ -10,7 +10,7 @@
 
 import { readFile, writeFile, appendFile } from "fs/promises";
 import { existsSync } from "fs";
-import { config } from "../config";
+import { config, findKnownDeviceRefs } from "../config";
 import type { DeterministicResult, Entity, Fact, Segment, Episode } from "./deterministic";
 
 const DATA_DIR = "./data";
@@ -348,19 +348,7 @@ export async function parseTelegramChat(
 // ── Entity Extraction Helpers ──────────────────────────────────────────────────
 
 function extractDeviceRefs(text: string): string[] {
-  const devices: string[] = [];
-  const seen = new Set<string>();
-  const knownDevices = (process.env.BRAINCORE_KNOWN_DEVICES || "server-a,server-b,workstation").split(",");
-  const pattern = new RegExp("\\b(" + knownDevices.join("|") + ")\\b", "gi");
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    const name = match[1].toLowerCase().replace(/\s+/g, "_");
-    if (!seen.has(name)) {
-      seen.add(name);
-      devices.push(name);
-    }
-  }
-  return devices;
+  return findKnownDeviceRefs(text);
 }
 
 function extractServiceRefs(text: string): string[] {

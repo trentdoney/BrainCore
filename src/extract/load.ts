@@ -16,6 +16,7 @@ import type { DeterministicResult, Segment, Fact } from "./deterministic";
 import type { SemanticResult, SemanticFact } from "./semantic";
 import { config } from "../config";
 import { checkQualityGate, type FactCandidate } from "./quality-gate";
+import { redactSecrets } from "../security/secret-scanner";
 
 export interface LoadResult {
   entitiesCreated: number;
@@ -32,8 +33,38 @@ export interface LoadResult {
   };
 }
 
+const HIGH_RISK_FACT_KINDS = new Set([
+  "decision",
+  "remediation",
+  "constraint",
+  "config_change",
+]);
+
 function sha256(text: string): string {
   return createHash("sha256").update(text, "utf-8").digest("hex");
+}
+
+async function queueArtifactReview(
+  tx: postgres.TransactionSql,
+  artifactId: string,
+  reason: string,
+): Promise<void> {
+  await tx`
+    INSERT INTO preserve.review_queue (target_type, target_id, reason, status)
+    SELECT
+      'artifact',
+      ${artifactId}::uuid,
+      ${reason},
+      'pending'::preserve.review_status
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM preserve.review_queue rq
+      WHERE rq.target_type = 'artifact'
+        AND rq.target_id = ${artifactId}::uuid
+        AND rq.reason = ${reason}
+        AND rq.status = 'pending'
+    )
+  `;
 }
 
 /**
@@ -82,10 +113,14 @@ async function tryEmbed(text: string): Promise<number[] | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.embed.authToken) {
+      headers.Authorization = `Bearer ${config.embed.authToken}`;
+    }
     const res = await fetch(config.embed.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      headers,
+      body: JSON.stringify({ text: redactSecrets(text).redacted }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -609,6 +644,14 @@ export async function loadExtraction(
     }
 
     // ── 7. Update Extraction Run Status ────────────────────────────────────
+    const reviewReasons = new Set<string>(semantic?.reviewReasons || []);
+    if (semantic?.facts.some((fact) => HIGH_RISK_FACT_KINDS.has(fact.fact_kind))) {
+      reviewReasons.add("high_risk_fact_kind");
+    }
+    for (const reason of reviewReasons) {
+      await queueArtifactReview(tx, artifactId, reason);
+    }
+
     await tx`
       UPDATE preserve.extraction_run
       SET status = 'success'::preserve.extraction_status,

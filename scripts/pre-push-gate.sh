@@ -48,7 +48,7 @@ fi
 echo ""
 echo "--- Sanitization gates (8) ---"
 check_gate "Gate 1 credentials"       "4c31f52e|PGPASSWORD"
-check_gate "Gate 2 private IPs"       "192\.168\.|10\.0\."
+check_gate "Gate 2 private IPs"       "192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}"
 check_gate "Gate 3 chat IDs"          "8711262954|1341790623"
 check_gate "Gate 4 personal projects" "shockfeed|onlyfans|brandibaby|polymarket|nanoclaw|DAD_Case|buddyx"
 check_gate "Gate 5 home paths"        "/home/minion"

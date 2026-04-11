@@ -52,6 +52,7 @@ All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid re
 - **Project scoping**: Facts, memories, and episodes auto-tagged to projects via service mapping
 - **Quality gate**: SHA256 fingerprint dedup, secret redaction, and assertion-class validation
 - **Local-first LLM**: Uses vLLM (OpenAI-compatible) with automatic Claude CLI fallback
+- **Risk review queue**: semantic truncation, prompt-injection heuristics, redaction hits, and high-risk fact kinds are queued for human review
 - **Parallel nightly pipeline**: Automated archive-extract-consolidate-publish cycle with parallel extractors and health gating
 - **Eval framework**: Gold-set benchmark with precision, recall, and evidence grounding metrics
 - **MCP-ready retrieval layer**: Python retrieval library plus a minimal FastMCP example server for downstream tool exposure
@@ -89,6 +90,7 @@ docker compose -f examples/docker-compose.yml up -d
 sleep 5
 cp .env.example .env
 $EDITOR .env
+# Optional: set BRAINCORE_EMBED_AUTH_TOKEN if your /embed endpoint requires auth.
 set -a && . ./.env && set +a
 ```
 
@@ -601,6 +603,12 @@ Key points:
 - The open-source repo assumes local PostgreSQL ownership.
 - Retrieval degrades when the embedder is missing; it should not fail
   closed in a way that hides operational history.
+
+## Release Hygiene
+
+- Run `bun run sanitize:check` before pushing.
+- The GitHub workflow runs the same sanitization gate on pushes to `main` and pull requests.
+- Keep `.env` local-only and prefer localhost or authenticated LAN endpoints for `/embed` and retrieval sidecars.
 
 ## License
 

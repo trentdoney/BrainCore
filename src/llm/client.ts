@@ -121,10 +121,11 @@ export class LLMClient {
     const fullPrompt = `${opts.systemPrompt}\n\n${opts.userMessage}`;
 
     const proc = Bun.spawn(
-      ["claude", "--print", "--output-format", "json", "--max-turns", "1", "-p", fullPrompt],
+      ["claude", "--print", "--output-format", "json", "--max-turns", "1", "-p", "-"],
       {
         stdout: "pipe",
         stderr: "pipe",
+        stdin: new Blob([fullPrompt]),
         env: { ...process.env },
       },
     );

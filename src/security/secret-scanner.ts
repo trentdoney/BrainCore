@@ -14,11 +14,23 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
     label: "password",
   },
   {
-    pattern: /(?:token|secret|bearer)\s*[:=]\s*['"]?([a-zA-Z0-9_\-\.]{20,})['"]?/gi,
+    pattern: /(?:token|secret)\s*[:=]\s*['"]?([a-zA-Z0-9_\-\.]{20,})['"]?/gi,
     label: "token",
   },
   {
-    pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA )?PRIVATE KEY-----/g,
+    pattern: /(?:authorization\s*:\s*)?bearer\s+[a-zA-Z0-9._\-]{20,}/gi,
+    label: "bearer_token",
+  },
+  {
+    pattern: /\beyJ[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+/g,
+    label: "jwt",
+  },
+  {
+    pattern: /(?:session(?:id)?|cookie|refresh[_-]?token)\s*[:=]\s*['"]?([^\s'";]{16,})['"]?/gi,
+    label: "session_secret",
+  },
+  {
+    pattern: /-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----/g,
     label: "private_key",
   },
   {
@@ -26,7 +38,7 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
     label: "connection_string",
   },
   {
-    pattern: /(?:sk-|pk_live_|pk_test_|sk_live_|sk_test_|ghp_|gho_|github_pat_)[a-zA-Z0-9_\-]{20,}/g,
+    pattern: /(?:sk-|pk_live_|pk_test_|sk_live_|sk_test_|ghp_|gho_|github_pat_|xox[baprs]-|ya29\.|hf_[A-Za-z0-9]{20,}|glpat-|sg\.[A-Za-z0-9._-]{20,})[a-zA-Z0-9_\-\.]{10,}/g,
     label: "vendor_key",
   },
   {
