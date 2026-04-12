@@ -6,6 +6,14 @@
 
 SET search_path TO preserve, public;
 
+CREATE TABLE IF NOT EXISTS preserve.publish_note (
+    publish_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    memory_id     UUID UNIQUE REFERENCES preserve.memory(memory_id),
+    file_path     TEXT NOT NULL,
+    content_hash  TEXT NOT NULL,
+    published_at  TIMESTAMPTZ DEFAULT now()
+);
+
 BEGIN;
 
 LOCK TABLE preserve.entity,

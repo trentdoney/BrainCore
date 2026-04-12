@@ -102,6 +102,11 @@ The supported launch path is `bun src/cli.ts migrate`.
 bun src/cli.ts migrate
 ```
 
+The migration runner connects with `BRAINCORE_POSTGRES_DSN` directly. It does
+not require the `psql` binary on the application host. Applied migrations are
+recorded in `preserve.schema_migration`; existing deployments with a complete
+schema are baselined into the ledger instead of re-running data rewrites.
+
 You can sanity-check the open-source schema shape like this:
 
 ```bash
