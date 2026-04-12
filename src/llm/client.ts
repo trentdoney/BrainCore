@@ -1,7 +1,7 @@
 /**
- * client.ts — LLM client with automatic CLI fallbacks.
+ * client.ts — LLM client with automatic CLI fallback.
  * Tries local vLLM endpoints in priority order. If ALL are unhealthy,
- * automatically falls back to Codex GPT-5.4 Mini, then Claude Haiku.
+ * automatically falls back to Claude Haiku.
  */
 
 import { config } from "../config";
@@ -10,7 +10,7 @@ import { checkEndpoint, type EndpointHealth } from "./health";
 export interface LLMResponse {
   content: string;
   model: string;
-  provider: "vllm" | "codex-cli" | "claude-cli";
+  provider: "vllm" | "claude-cli";
   durationMs: number;
   endpoint?: string;
 }
@@ -42,7 +42,7 @@ export class LLMClient {
 
   /**
    * Try local vLLM endpoints in priority order. First healthy endpoint wins.
-   * If ALL endpoints are unhealthy, fall back to Codex first, then Claude CLI.
+   * If ALL endpoints are unhealthy, fall back to Claude CLI.
    */
   async complete(opts: CompletionOpts): Promise<LLMResponse> {
     const endpoints = config.vllm.endpoints
@@ -68,18 +68,10 @@ export class LLMClient {
       }
     }
 
-    // ALL endpoints failed — automatic fallback to Codex CLI first.
-    console.error("  [llm] All vLLM endpoints unhealthy. Falling back to Codex CLI.");
-    await this.sendTelegramAlert("Local LLM offline, falling back to Codex GPT-5.4 Mini for extraction");
-
-    try {
-      return await this.completeWithCodex(opts);
-    } catch (e: any) {
-      console.error(`  [llm] Codex CLI fallback failed: ${e.message}`);
-      console.error("  [llm] Falling back to Claude CLI.");
-      await this.sendTelegramAlert("Codex fallback failed, falling back to Claude CLI for extraction");
-      return this.completeWithCLI(opts);
-    }
+    // ALL endpoints failed — automatic fallback to Claude CLI only.
+    console.error("  [llm] All vLLM endpoints unhealthy. Falling back to Claude CLI.");
+    await this.sendTelegramAlert("Local LLM offline, falling back to Claude CLI for extraction");
+    return this.completeWithCLI(opts);
   }
 
   private buildCliPrompt(opts: CompletionOpts): string {
@@ -124,65 +116,6 @@ export class LLMClient {
       content: stdout.trim(),
       model: "claude-haiku-4-5-20251001",
       provider: "claude-cli",
-      durationMs,
-    };
-  }
-
-  /**
-   * Primary cloud fallback to Codex CLI (GPT-5.4 Mini).
-   * Pipes the prompt via stdin and runs read-only/ephemeral to avoid repo edits.
-   */
-  async completeWithCodex(opts: CompletionOpts): Promise<LLMResponse> {
-    const start = performance.now();
-    const fullPrompt = this.buildCliPrompt(opts);
-    let timedOut = false;
-
-    const proc = Bun.spawn(
-      [
-        config.codex.bin,
-        "exec",
-        "--model",
-        config.codex.model,
-        "--sandbox",
-        "read-only",
-        "--skip-git-repo-check",
-        "--ephemeral",
-        "--color",
-        "never",
-        "-",
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: new Blob([fullPrompt]),
-        env: { ...process.env },
-      },
-    );
-
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      proc.kill();
-    }, config.codex.timeout);
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
-    clearTimeout(timeout);
-    const durationMs = Math.round(performance.now() - start);
-
-    if (timedOut) {
-      throw new Error(`Codex CLI timed out after ${config.codex.timeout}ms`);
-    }
-    if (exitCode !== 0) {
-      throw new Error(`Codex CLI exited ${exitCode}: ${stderr.slice(0, 500)}`);
-    }
-
-    console.error(`  [llm] Codex CLI fallback completed in ${durationMs}ms`);
-
-    return {
-      content: stdout.trim(),
-      model: config.codex.model,
-      provider: "codex-cli",
       durationMs,
     };
   }

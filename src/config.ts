@@ -28,7 +28,6 @@ interface Config {
     healthTimeout: number;
     requestTimeout: number;
   };
-  codex: { bin: string; model: string; timeout: number };
   embed: { url: string; authToken: string };
   limits: {
     maxSourceBytes: number;
@@ -61,11 +60,6 @@ function buildConfig(): Config {
         }),
       healthTimeout: parseInt(env("BRAINCORE_VLLM_HEALTH_TIMEOUT", "3000"), 10),
       requestTimeout: parseInt(env("BRAINCORE_VLLM_REQUEST_TIMEOUT", "120000"), 10),
-    },
-    codex: {
-      bin: env("BRAINCORE_CODEX_BIN", "codex"),
-      model: env("BRAINCORE_CODEX_MODEL", "gpt-5.4-mini"),
-      timeout: parseInt(env("BRAINCORE_CODEX_TIMEOUT", "180000"), 10),
     },
     embed: {
       url: env("BRAINCORE_EMBED_URL", "http://localhost:8900/embed"),
