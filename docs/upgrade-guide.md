@@ -4,7 +4,7 @@ This guide is for upgrades within the public BrainCore launch surface.
 
 ## Versioning
 
-The launch release is `v1.1.4`.
+The launch release is `v1.1.5`.
 
 Use a patch release when you:
 

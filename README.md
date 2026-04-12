@@ -44,6 +44,23 @@ All knowledge is stored in PostgreSQL with pgvector, enabling 4-stream hybrid re
   <img src="assets/dashboard.png" alt="BrainCore results dashboard" />
 </p>
 
+## Quality Standard
+
+BrainCore is maintained as a public, employer-visible engineering artifact.
+Every public change is expected to be reviewed at the level of production
+software:
+
+- Documentation, tests, migrations, and benchmark evidence must agree in
+  the same change set.
+- Public numeric claims must be backed by `benchmarks/claims-to-evidence.yaml`
+  or a committed benchmark artifact.
+- Routine work should land through pull requests with required GitHub Actions
+  checks, not direct pushes to `main`.
+- If CI fails, the follow-up should make the root cause and verification clear
+  instead of papering over the failure.
+- Private hosts, home paths, tokens, and deployment-only details must stay out
+  of tracked public files.
+
 ## Features
 
 - **7 data source parsers**: OpsVault incidents, Claude Code sessions, Codex sessions, Discord digests, Telegram chats, Grafana alerts, PAI memory
@@ -114,7 +131,7 @@ psql "$BRAINCORE_POSTGRES_DSN" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname='preserve';"
 ```
 
-Expected result on a fresh clone: `14-table preserve schema`.
+Expected result on a fresh clone: `16-table preserve schema`.
 
 ### 4. Run the smoke benchmark
 
@@ -333,7 +350,7 @@ for row in result["results"]:
 
 ## Knowledge Graph
 
-The open-source repo ships a `14-table preserve schema`. The tables are
+The open-source repo ships a `16-table preserve schema`. The tables are
 split by lifecycle rather than by document format.
 
 | Table | Purpose |
@@ -341,6 +358,7 @@ split by lifecycle rather than by document format.
 | `artifact` | master record for archived source material |
 | `segment` | evidence spans, excerpts, embeddings, and scope |
 | `extraction_run` | audit trail for extraction attempts |
+| `schema_migration` | migration ledger for applied SQL files and baselined deployments |
 | `entity` | devices, services, projects, incidents, sessions, config items |
 | `episode` | time-bounded incidents or sessions |
 | `event` | discrete events inside an episode |
@@ -348,6 +366,7 @@ split by lifecycle rather than by document format.
 | `fact_evidence` | fact-to-segment support links |
 | `memory` | consolidated patterns, heuristics, playbooks, summaries |
 | `memory_support` | memory-to-fact and memory-to-episode support |
+| `publish_note` | publish-state tracking for promoted memory notes |
 | `review_queue` | human review and moderation workflow |
 | `project_service_map` | service-to-project scoping map |
 | `eval_run` | stored evaluation runs and aggregate metrics |

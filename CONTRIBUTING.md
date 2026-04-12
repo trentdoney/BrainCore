@@ -19,9 +19,24 @@ what the repo actually ships:
    of the diff.
 4. Do not turn the example MCP server into a claim that the repo ships a
    larger tool surface than it does.
-5. Keep the launch truth surface aligned: `001` through `008`,
-   `14-table preserve schema`, `v1.1.4`, and the committed benchmark
+5. Keep the launch truth surface aligned: `001` through `010`,
+   `16-table preserve schema`, `v1.1.5`, and the committed benchmark
    artifacts.
+
+## Push quality gate
+
+BrainCore is a public repo. Treat every push as employer-visible:
+
+1. Do not make routine changes directly on `main`; use a PR and required
+   status checks before merge.
+2. Inspect the staged diff before pushing. Schema, benchmark, version, and
+   public-doc changes must update their tests and evidence rows in the same
+   commit.
+3. Run the relevant local checks before pushing. For schema-adjacent work,
+   that means a clean-database migration check plus the Python, TypeScript,
+   benchmark-claim, tool-index, and sanitization checks listed below.
+4. After pushing, inspect GitHub Actions for the pushed SHA and keep working
+   until required checks pass.
 
 ## Required checks
 

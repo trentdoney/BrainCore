@@ -102,6 +102,14 @@ RESULTS_DIR = BENCHMARKS_DIR / "results"
 OUTPUT_PATH = RESULTS_DIR / f"{RESULT_DATE}-retrieval.json"
 
 
+def _public_dsn_host_label(dsn: str) -> str:
+    """Return redacted DB-host metadata safe for committed artifacts."""
+    host = psycopg.conninfo.conninfo_to_dict(dsn).get("host")
+    if host in (None, "", "localhost"):
+        return "localhost"
+    return "redacted"
+
+
 # ---------------------------------------------------------------------------
 # Namespace collision guard (see examples/mcp_server/server.py for details)
 # ---------------------------------------------------------------------------
@@ -433,7 +441,7 @@ def run(no_seed: bool = False, force_seed: bool = False) -> dict[str, Any]:
         "metadata": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "python": sys.version.split()[0],
-            "dsn_host": psycopg.conninfo.conninfo_to_dict(dsn).get("host", "unknown"),
+            "dsn_host": _public_dsn_host_label(dsn),
         },
     }
 

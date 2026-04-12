@@ -185,13 +185,14 @@ the whole retrieval strategy:
 
 ## Schema Walkthrough
 
-The launch candidate ships a 14-table open-source preserve schema.
+The launch candidate ships a 16-table open-source preserve schema.
 
 | Table | Role | Notes |
 |---|---|---|
 | `artifact` | ingest boundary | raw source tracker with preservation state |
 | `segment` | evidence storage | excerpts, embeddings, section labels |
 | `extraction_run` | audit trail | which extraction path ran and when |
+| `schema_migration` | migration ledger | applied SQL files, checksums, and baselines |
 | `entity` | graph anchor | devices, services, projects, incidents, sessions |
 | `episode` | bounded narrative unit | incidents and sessions |
 | `event` | sub-episode events | timeline granularity |
@@ -199,6 +200,7 @@ The launch candidate ships a 14-table open-source preserve schema.
 | `fact_evidence` | support edges | fact-to-segment links |
 | `memory` | durable knowledge | patterns, heuristics, playbooks, summaries |
 | `memory_support` | memory provenance | support edges back to facts and episodes |
+| `publish_note` | publish state | promoted memory note paths and content hashes |
 | `review_queue` | human moderation | approval and deferral state |
 | `project_service_map` | project scoping | service-to-project lookup |
 | `eval_run` | stored eval results | JSONB results + metrics |

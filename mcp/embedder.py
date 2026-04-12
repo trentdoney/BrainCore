@@ -11,6 +11,8 @@ Behaviour
 1. If ``BRAINCORE_EMBED_URL`` is set, POST ``{"texts": [text]}`` to that
    URL and expect a JSON response of shape ``{"embeddings": [[...]]}``.
    Return the first embedding as a ``numpy.ndarray`` of dtype float32.
+   If ``BRAINCORE_EMBED_AUTH_TOKEN`` is set, send it as a bearer token in
+   the ``Authorization`` header.
 2. If the env var is UNSET, or the HTTP call fails for ANY reason (network
    error, non-200 status, malformed JSON, wrong dimension), fall back to a
    384-dimensional zero vector. The vector stream then contributes nothing
@@ -26,7 +28,7 @@ down-weights naturally.
 Production deployments should point ``BRAINCORE_EMBED_URL`` at a real
 embedding service that returns 384-dim vectors from the same model family
 as the embeddings stored in ``preserve.{fact,memory,segment,episode}``.
-The reference model for the public v1.1.4 schema is ``opsvault-minilm-v1``
+The reference model for the public v1.1.5 schema is ``opsvault-minilm-v1``
 (384-dim), matching ``mcp/memory_models.py``'s default. Downstream
 OpsVault-style deployments typically run their own ``/embed`` HTTP
 endpoint in a sibling service.
@@ -51,6 +53,14 @@ def _zero_vector() -> np.ndarray:
     return np.zeros(EMBED_DIM, dtype=np.float32)
 
 
+def _auth_headers() -> dict[str, str]:
+    """Return optional embed endpoint auth headers from the environment."""
+    token = os.environ.get("BRAINCORE_EMBED_AUTH_TOKEN")
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def embed_query(text: str) -> np.ndarray:
     """Embed a single query string as a 384-dim float32 ``numpy.ndarray``.
 
@@ -60,7 +70,10 @@ def embed_query(text: str) -> np.ndarray:
     pipeline's vector stream degrades gracefully to the remaining three
     streams (structured SQL, full-text, temporal). The HTTP call is
     only attempted when the env var is explicitly set to a non-empty
-    value. If the HTTP call is attempted and fails for any reason
+    value. If ``BRAINCORE_EMBED_AUTH_TOKEN`` is set, the token is sent
+    as a bearer token so deployments can protect the embed endpoint
+    without silently disabling vector retrieval. If the HTTP call is
+    attempted and fails for any reason
     (network error, non-200 status, malformed JSON, wrong dimension),
     the function falls back to the same zero vector rather than
     crashing retrieval.
@@ -75,6 +88,7 @@ def embed_query(text: str) -> np.ndarray:
             url,
             json={"texts": [text]},
             timeout=HTTP_TIMEOUT_SECONDS,
+            headers=_auth_headers(),
         )
         if resp.status_code != 200:
             logger.warning(
