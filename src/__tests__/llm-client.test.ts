@@ -3,6 +3,8 @@ import { LLMClient } from "../llm/client";
 
 describe("LLMClient fallback behavior", () => {
   test("falls back from unhealthy vLLM endpoints directly to Claude CLI", async () => {
+    process.env.BRAINCORE_POSTGRES_DSN ??= "postgres://test:test@localhost:5432/test";
+
     const client = new LLMClient() as any;
     let claudeCalled = false;
     let codexCalled = false;
