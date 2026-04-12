@@ -21,6 +21,11 @@ EMBED_URL = os.environ.get("BRAINCORE_EMBED_URL", "http://localhost:8900/embed")
 BRAINCORE_EMBED_AUTH_TOKEN = os.environ.get("BRAINCORE_EMBED_AUTH_TOKEN", "")
 BATCH_SIZE = 32
 
+
+class EmbeddingBackfillError(RuntimeError):
+    """Raised for embed endpoint failures that must fail the nightly step."""
+
+
 SECRET_PATTERNS = [
     (re.compile(r"(?:authorization\s*:\s*)?bearer\s+[a-zA-Z0-9._\-]{20,}", re.I), "[REDACTED:bearer_token]"),
     (re.compile(r"\beyJ[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+?\.[a-zA-Z0-9_\-]+"), "[REDACTED:jwt]"),
@@ -43,8 +48,28 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     headers = {}
     if BRAINCORE_EMBED_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {BRAINCORE_EMBED_AUTH_TOKEN}"
-    resp = requests.post(EMBED_URL, json={"texts": texts}, headers=headers, timeout=60)
-    resp.raise_for_status()
+
+    try:
+        resp = requests.post(EMBED_URL, json={"texts": texts}, headers=headers, timeout=60)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        raise EmbeddingBackfillError(f"SERVICE_UNAVAILABLE: embed endpoint unreachable: {e}") from e
+    except requests.exceptions.RequestException as e:
+        raise EmbeddingBackfillError(f"REQUEST_ERROR: embed endpoint request failed: {e}") from e
+
+    if resp.status_code == 401:
+        raise EmbeddingBackfillError("AUTH_ERROR: embed endpoint rejected credentials (HTTP 401)")
+    if resp.status_code >= 500:
+        raise EmbeddingBackfillError(
+            f"SERVICE_UNAVAILABLE: embed endpoint returned HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+
+    try:
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise EmbeddingBackfillError(
+            f"HTTP_ERROR: embed endpoint returned HTTP {resp.status_code}: {resp.text[:200]}"
+        ) from e
+
     return resp.json()["embeddings"]
 
 
@@ -70,10 +95,10 @@ def backfill_table(conn, table: str, id_col: str, text_expr: str, label: str) ->
 
         try:
             embeddings = embed_batch(texts)
-        except Exception as e:
+        except EmbeddingBackfillError as e:
             print(f"  [{label}] ERROR at batch {i}: {e}", file=sys.stderr)
             conn.rollback()
-            continue
+            raise
 
         for row_id, emb in zip(ids, embeddings):
             emb_np = np.array(emb, dtype=np.float32)
@@ -125,4 +150,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except EmbeddingBackfillError as e:
+        print(f"Embedding backfill failed: {e}", file=sys.stderr)
+        sys.exit(1)

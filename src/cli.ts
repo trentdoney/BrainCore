@@ -46,6 +46,7 @@ function printUsage(): void {
   console.log("    --report           Print last eval report");
   console.log("  gate-check           Report blocked/failed artifacts");
   console.log("  health-check         Check vLLM endpoint health");
+  console.log("  schema-check         Verify required DB constraints");
   console.log("  project              Project lifecycle commands");
   console.log("    list               Show projects with artifact/fact counts");
   console.log("    tag --retag-all    Re-run project resolution on all artifacts");
@@ -214,6 +215,60 @@ const commands: Record<string, () => Promise<void>> = {
         `  [${icon}] ${r.name} ${r.url}${model}${latency}${error}`,
       );
     }
+  },
+
+  "schema-check": async () => {
+    const { sql, testConnection } = await import("./db");
+    console.log("\n=== BrainCore Schema Check ===\n");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+
+    const required = new Set([
+      "preserve.artifact:uq_artifact_tenant_source_key",
+      "preserve.entity:uq_entity_tenant_type_name",
+      "preserve.memory:uq_memory_tenant_fingerprint",
+    ]);
+    const oldTenantBlind = new Set([
+      "preserve.artifact:artifact_source_key_key",
+      "preserve.entity:entity_entity_type_canonical_name_key",
+      "preserve.memory:memory_fingerprint_key",
+    ]);
+
+    const rows = await sql`
+      SELECT conrelid::regclass::text AS table_name, conname
+      FROM pg_constraint
+      WHERE connamespace = 'preserve'::regnamespace
+        AND conname IN (
+          'uq_artifact_tenant_source_key',
+          'uq_entity_tenant_type_name',
+          'uq_memory_tenant_fingerprint',
+          'artifact_source_key_key',
+          'entity_entity_type_canonical_name_key',
+          'memory_fingerprint_key'
+        )
+      ORDER BY table_name, conname
+    `;
+
+    const present = new Set(rows.map((r: any) => `${r.table_name}:${r.conname}`));
+    const missing = [...required].filter((key) => !present.has(key));
+    const stale = [...oldTenantBlind].filter((key) => present.has(key));
+
+    if (missing.length > 0 || stale.length > 0) {
+      if (missing.length > 0) {
+        console.error("Missing required tenant-scoped constraints:");
+        for (const key of missing) console.error(`  - ${key}`);
+      }
+      if (stale.length > 0) {
+        console.error("Stale tenant-blind constraints still present:");
+        for (const key of stale) console.error(`  - ${key}`);
+      }
+      await sql.end();
+      process.exit(1);
+    }
+
+    console.log("OK: tenant-scoped uniqueness constraints are active.");
+    console.log("OK: old tenant-blind uniqueness constraints are absent.");
+    await sql.end();
   },
 
   consolidate: async () => {
@@ -540,7 +595,7 @@ const commands: Record<string, () => Promise<void>> = {
         WITH candidate_projects AS (
           SELECT
             ms.memory_id,
-            min(cp.project_entity_id) AS project_entity_id,
+            min(cp.project_entity_id::text)::uuid AS project_entity_id,
             count(DISTINCT cp.project_entity_id) AS project_count
           FROM preserve.memory_support ms
           JOIN preserve.memory m

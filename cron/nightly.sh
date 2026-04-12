@@ -49,9 +49,11 @@ run_step() {
   log "START: $name"
   if "$@" >> "$LOG" 2>&1; then
     log "OK: $name"
+    return 0
   else
     log "FAIL: $name"
     echo "$name" >> "$FAIL_FLAGS"
+    return 1
   fi
 }
 
@@ -92,6 +94,27 @@ if ! BUN_BIN="$(resolve_bun 2>>"$LOG")"; then
   exit 1
 fi
 log "Bun: $BUN_BIN"
+
+# Preflight: fail before extraction if runtime code and DB schema drift apart.
+if ! run_step "schema-check" "$BUN_BIN" src/cli.ts schema-check; then
+  alert "Nightly aborted: BrainCore schema drift detected"
+  exit 1
+fi
+
+# Visibility: vLLM can be down without blocking deterministic extraction, but
+# it must leave an explicit trace in the nightly log for follow-up.
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  log "DRY: would run [vllm-health]: $BUN_BIN src/cli.ts health-check"
+else
+  log "START: vllm-health"
+  VLLM_HEALTH="$($BUN_BIN src/cli.ts health-check 2>&1 || true)"
+  printf '%s\n' "$VLLM_HEALTH" >> "$LOG"
+  if printf '%s\n' "$VLLM_HEALTH" | grep -q '\[OK\]'; then
+    log "OK: vllm-health"
+  else
+    log "WARN: vLLM unreachable -- semantic extraction may fall back or skip"
+  fi
+fi
 
 # Group A: Independent ingestion (parallel)
 log "Group A: codex-sync"

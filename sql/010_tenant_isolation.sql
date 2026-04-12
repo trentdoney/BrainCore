@@ -17,7 +17,8 @@ LOCK TABLE preserve.entity,
            preserve.event,
            preserve.fact,
            preserve.memory,
-           preserve.memory_support
+           preserve.memory_support,
+           preserve.publish_note
 IN SHARE ROW EXCLUSIVE MODE;
 
 -- ---------------------------------------------------------------------------
@@ -480,6 +481,15 @@ JOIN _memory_remap mr
 WHERE ms.support_id = st.support_id
   AND ms.memory_id <> mr.new_memory_id;
 
+UPDATE preserve.publish_note pn
+SET memory_id = mr.new_memory_id
+FROM _memory_targets mt
+JOIN _memory_remap mr
+  ON mr.old_memory_id = mt.old_memory_id
+ AND mr.target_tenant = mt.target_tenant
+WHERE pn.memory_id = mt.old_memory_id
+  AND pn.memory_id <> mr.new_memory_id;
+
 DELETE FROM preserve.memory m
 WHERE EXISTS (
         SELECT 1
@@ -491,6 +501,11 @@ WHERE EXISTS (
         SELECT 1
         FROM preserve.memory_support ms
         WHERE ms.memory_id = m.memory_id
+    )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM preserve.publish_note pn
+        WHERE pn.memory_id = m.memory_id
     );
 
 -- ---------------------------------------------------------------------------
