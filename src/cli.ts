@@ -1099,6 +1099,7 @@ async function extractSingleIncident(
   const { config } = await import("./config");
   const { parseDeterministic } = await import("./extract/deterministic");
   const { extractSemantic } = await import("./extract/semantic");
+  const { queueOversizedIncidentArtifact } = await import("./extract/oversized-artifact");
   const { LLMClient } = await import("./llm/client");
   const { loadExtraction } = await import("./extract/load");
   const { sql, testConnection } = await import("./db");
@@ -1140,59 +1141,13 @@ async function extractSingleIncident(
       process.exit(1);
     }
 
-    let artifactId: string;
-    const fallbackScope = `incident:${slug}`;
-    const existing = await sql`
-      SELECT artifact_id FROM preserve.artifact
-      WHERE source_key = ${slug}
-      LIMIT 1
-    `.catch(() => [] as any[]);
-
-    if (existing.length > 0) {
-      artifactId = existing[0].artifact_id;
-    } else {
-      const [newArtifact] = await sql`
-        INSERT INTO preserve.artifact (
-          source_key, source_type, original_path, sha256, size_bytes,
-          scope_path, can_query_raw, can_promote_memory, preservation_state
-        ) VALUES (
-          ${slug},
-          'opsvault_incident'::preserve.source_type,
-          ${incidentPath},
-          ${fileSha256},
-          ${fileSize},
-          ${fallbackScope},
-          false, false,
-          'pending_escalation'::preserve.preservation_state
-        )
-        RETURNING artifact_id
-      `;
-      artifactId = newArtifact.artifact_id;
-    }
-
-    await sql`
-      UPDATE preserve.artifact
-      SET preservation_state = 'pending_escalation'::preserve.preservation_state,
-          scope_path = COALESCE(scope_path, ${fallbackScope}),
-          updated_at = now()
-      WHERE artifact_id = ${artifactId}::uuid
-    `;
-    await sql`
-      INSERT INTO preserve.review_queue (target_type, target_id, reason, status)
-      SELECT
-        'artifact',
-        ${artifactId}::uuid,
-        'source_too_large',
-        'pending'::preserve.review_status
-      WHERE NOT EXISTS (
-        SELECT 1
-        FROM preserve.review_queue rq
-        WHERE rq.target_type = 'artifact'
-          AND rq.target_id = ${artifactId}::uuid
-          AND rq.reason = 'source_too_large'
-          AND rq.status = 'pending'
-      )
-    `;
+    const artifactId = await queueOversizedIncidentArtifact(sql, {
+      slug,
+      incidentPath,
+      fileSha256,
+      fileSize,
+      tenant: config.tenant,
+    });
     console.log(`  Queued artifact ${artifactId} for human review (source_too_large).`);
     await sql.end();
     return;

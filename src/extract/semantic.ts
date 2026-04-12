@@ -46,7 +46,7 @@ export interface SemanticResult {
   lessons: Lesson[];
   questions: Question[];
   model: string;
-  provider: "vllm" | "codex-cli" | "claude-cli" | "skipped";
+  provider: "vllm" | "claude-cli" | "skipped";
   durationMs: number;
   warnings: string[];
   reviewReasons: string[];
