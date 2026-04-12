@@ -59,10 +59,10 @@ export BRAINCORE_TEST_DSN='<libpq DSN>'
 # 2. Apply the 8 migration files in filename-sort order.
 bun src/cli.ts migrate
 
-# 3. Sanity-check the schema: 14 preserve tables
+# 3. Sanity-check the schema: 16 preserve tables
 psql "$BRAINCORE_TEST_DSN" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname='preserve';"
-# Expected: 14
+# Expected: 16
 
 # 4. Run the retrieval smoke. run_retrieval.py auto-applies
 #    the synthetic fixture when preserve.fact is empty.
@@ -141,5 +141,5 @@ This production-corpus grounding artifact is intentionally separate from the smo
 - Embedder fallback. If `BRAINCORE_EMBED_URL` is unset, or the embedder HTTP call fails for any reason, `mcp/embedder.py` returns a 384-dim zero vector and `run_retrieval.py` sets `streams.vector = null` + `config.vector_disabled = true` in the output JSON. The FTS, structured, and temporal streams continue to contribute, but vector-stream relevance is not measured. Production deployments must point `BRAINCORE_EMBED_URL` at a service that returns 384-dim vectors from the same model family as the embeddings in `preserve.{fact,memory,segment,episode}`.
 - Synthetic smoke fixture, not sample-vault ingestion. The committed corpus counts come from a deterministic synthetic fixture that is auto-applied on a fresh DB by `run_retrieval.py`. This is a pipeline regression baseline, not a representative measurement. A production BrainCore install typically has 10k+ facts and 1k+ entities; the runners can be pointed at such a corpus, but any retrieval-quality numbers intended for the launch README must come from the separate production-corpus run.
 - Production relevance is not a headline claim. The committed `2026-04-09-retrieval-production.json` file records `relevance_at_10 = 0.0` for the canonical 12-query set because those queries are tuned to the synthetic sample incidents (`server-a`, `server-b`, `postgresql`, `nginx`, SSL) rather than the live deployment corpus. The production file is still valid for corpus size, latency, and stream-health claims; do not cite its relevance field in the launch README.
-- 14 preserve tables, not 12 or 13. After `001` through `008`, the open-source preserve schema has 14 tables. Any downstream claim that reads "12 preserve tables" or "13 preserve tables" is stale. Every check in `claims-to-evidence.yaml` and `tests/test_migrations.py` asserts 14.
+- 16 preserve tables, not 12, 13, or 14. After `001` through `010` plus the runtime migration ledger bootstrap, the open-source preserve schema has 16 tables. Any downstream claim that reads "12 preserve tables", "13 preserve tables", or "14 preserve tables" is stale. Every check in `claims-to-evidence.yaml` and `tests/test_migrations.py` asserts 16.
 - `eval --run` subcommand. `bun src/cli.ts eval --run` is fully implemented and writes one row per run to `preserve.eval_run`. It does NOT currently emit a `grounding_rate` metric in its metrics JSONB payload; the aggregate metrics it computes are entity precision/recall/F1, fact-count ratio, root-cause match, fix-summary match, and assertion-class distribution. This is why `run_grounding.py` queries `preserve.fact_evidence` directly. When a future BrainCore release adds `grounding_rate` to the eval runner's aggregate output, flip `source` in the grounding JSON to `"bun eval subcommand"` and read the value from `preserve.eval_run.metrics->>'grounding_rate'`.

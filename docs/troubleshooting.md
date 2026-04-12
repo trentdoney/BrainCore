@@ -16,7 +16,7 @@ If that fails:
 - inspect the first migration error, not the last one
 - confirm the database is empty enough for a full bootstrap
 
-After a successful install, the schema should report 14 preserve tables
+After a successful install, the schema should report 16 preserve tables
 and both `preserve.eval_run` and `preserve.eval_case` should exist. The
 application host does not need the `psql` binary for `bun src/cli.ts migrate`;
 the runner applies SQL through the configured PostgreSQL connection.

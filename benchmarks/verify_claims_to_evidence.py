@@ -73,7 +73,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #   We post-terminate with a non-word lookahead that also allows end
 #   of string.
 # - The `-table\s+preserve\s+schema` alternation catches the hyphenated
-#   public phrasing "13-table preserve schema" / "14-table preserve
+#   public phrasing "13-table preserve schema" / "16-table preserve
 #   schema". The hyphen is NOT a word boundary in the bare regex, so
 #   without an explicit alternation `\b13\s*tables?` would never see
 #   `13-table` (the digit-then-letter side of the hyphen is fine, but
@@ -236,9 +236,9 @@ CLAIM_BINDERS: dict[str, ClaimBinder] = {
     "canonical queries": _count_binder("canonical\\s+queries", "canonical queries"),
     # Hyphen-aware preserve-tables binder catches both "13 preserve
     # tables" and "13-table preserve schema". Used for both the smoke
-    # row (expected: 13) and the post-008 production row (expected: 14).
+    # row (expected: 13) and the post-010 production row (expected: 16).
     "13-table preserve schema": _preserve_tables_binder(),
-    "14-table preserve schema": _preserve_tables_binder(),
+    "16-table preserve schema": _preserve_tables_binder(),
     "7 deterministic parsers": _count_binder("deterministic\\s+parsers?", "parsers"),
     # Both relevance_at_10 and grounding_rate are reported as decimal
     # fractions in the smoke JSONs (0.4167, 0.5556). If the README cites
@@ -941,7 +941,7 @@ def _run_self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
         p, f, msgs = verify_all(broken_yaml_unused, repo, readme_citing_facts)
-        if f != 1 or "BROKEN" not in msgs[0]:
+        if f != 1 or "disabled row is referenced" not in msgs[0]:
             print(
                 f"FAIL test 6a: expected HARD-FAIL for cited broken row, got "
                 f"pass={p} fail={f} msg={msgs}",
@@ -1099,7 +1099,8 @@ def _run_self_test() -> int:
             smoke_and_production_yaml, repo, production_only_readme
         )
         broken_caught = any(
-            "production corpus facts" in m and "BROKEN" in m for m in msgs
+            "production corpus facts" in m and "disabled row is referenced" in m
+            for m in msgs
         )
         if not broken_caught:
             print(
@@ -1118,12 +1119,12 @@ def _run_self_test() -> int:
 
     # Case 8c: smoke + production rows that share a binder shape but
     # disagree on the value (smoke says 13-table, production says
-    # 14-table preserve schema). Both rows are non-broken sql_query
+    # 16-table preserve schema). Both rows are non-broken sql_query
     # rows. README cites both phrasings, with the production phrasing
     # wrapped in a production-anchor sentence and the smoke phrasing
     # wrapped in a smoke-context sentence. Symmetric isolation must:
     #   - bind the smoke 13-table row to the smoke citation only,
-    #   - bind the production 14-table row to the production citation
+    #   - bind the production 16-table row to the production citation
     #     only,
     #   - and result in zero failures despite both rows using the same
     #     hyphen-aware preserve-tables binder.
@@ -1137,10 +1138,10 @@ def _run_self_test() -> int:
             "framing": "smoke-regression",
         },
         {
-            "claim": "14-table preserve schema",
+            "claim": "16-table preserve schema",
             "source": "pg_tables",
             "source_type": "sql_query",
-            "expected": 14,
+            "expected": 16,
             "tolerance": 0,
             "framing": "production-corpus",
         },
@@ -1148,7 +1149,7 @@ def _run_self_test() -> int:
     coexistence_readme = (
         "The smoke regression test runs against a 13-table preserve "
         "schema (migrations 001-007 only). Our production "
-        "deployment ships a 14-table preserve schema after BL-12 lands."
+        "deployment ships a 16-table preserve schema after migration 010 lands."
     )
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
@@ -1166,13 +1167,13 @@ def _run_self_test() -> int:
             errors += 1
         else:
             print(
-                "PASS test 8c: smoke 13-table and production 14-table "
+                "PASS test 8c: smoke 13-table and production 16-table "
                 "preserve schema rows coexist via symmetric isolation"
             )
 
     # --- Test 9: hyphenated phrasing matcher for preserve schema. -------
     # The README uses "13-table preserve
-    # schema" / "14-table preserve schema" hyphenation; the bare
+    # schema" / "16-table preserve schema" hyphenation; the bare
     # "N preserve tables" binder missed it. The new
     # _preserve_tables_binder + NUMERIC_PATTERN extension catch BOTH
     # forms. This test uses literal source_type rows (Gap 4) to bind
@@ -1184,10 +1185,10 @@ def _run_self_test() -> int:
         "tolerance": 0,
         "framing": "smoke-regression",
     }]
-    hyphen_yaml_14 = [{
-        "claim": "14-table preserve schema",
+    hyphen_yaml_16 = [{
+        "claim": "16-table preserve schema",
         "source_type": "literal",
-        "expected": 14,
+        "expected": 16,
         "tolerance": 0,
         "framing": "smoke-regression",
     }]
@@ -1211,14 +1212,14 @@ def _run_self_test() -> int:
                 "to literal expected=13"
             )
 
-    # 9b: README uses "14-table preserve schema" — should bind to 14.
-    readme_14 = "After 008 the count rises to a 14-table preserve schema."
+    # 9b: README uses "16-table preserve schema" — should bind to 16.
+    readme_16 = "After 010 the count rises to a 16-table preserve schema."
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
-        p, f, msgs = verify_all(hyphen_yaml_14, repo, readme_14)
+        p, f, msgs = verify_all(hyphen_yaml_16, repo, readme_16)
         if f != 0 or p != 1:
             print(
-                f"FAIL test 9b: '14-table preserve schema' phrasing not "
+                f"FAIL test 9b: '16-table preserve schema' phrasing not "
                 f"matched, got pass={p} fail={f}",
                 file=sys.stderr,
             )
@@ -1227,16 +1228,16 @@ def _run_self_test() -> int:
             errors += 1
         else:
             print(
-                "PASS test 9b: hyphenated '14-table preserve schema' bound "
-                "to literal expected=14"
+                "PASS test 9b: hyphenated '16-table preserve schema' bound "
+                "to literal expected=16"
             )
 
     # 9c: README LIES — says "99-table preserve schema" while YAML
-    # expects 14. Must FAIL HARD on README-vs-source disagreement.
+    # expects 16. Must FAIL HARD on README-vs-source disagreement.
     lying_hyphen_readme = "We allegedly have a 99-table preserve schema."
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
-        p, f, msgs = verify_all(hyphen_yaml_14, repo, lying_hyphen_readme)
+        p, f, msgs = verify_all(hyphen_yaml_16, repo, lying_hyphen_readme)
         if f != 1 or not any("disagree" in m for m in msgs):
             print(
                 f"FAIL test 9c: lying '99-table preserve schema' not caught, "
@@ -1249,7 +1250,7 @@ def _run_self_test() -> int:
         else:
             print(
                 "PASS test 9c: hyphen-aware binder caught lying "
-                "'99-table preserve schema' (expected 14)"
+                "'99-table preserve schema' (expected 16)"
             )
 
     # 9d: bare "13 preserve tables" form still works (regression check).

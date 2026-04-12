@@ -163,7 +163,7 @@ def _get_pool() -> ConnectionPool:
             "BRAINCORE_POSTGRES_DSN is not set. Export it to a libpq DSN "
             "pointing at a BrainCore preserve-schema database, for example:\n"
             "  export BRAINCORE_POSTGRES_DSN='<libpq DSN>'\n"
-            "The target database must have migrations 001-008 applied."
+            "The target database must have migrations 001-010 applied."
         )
 
     _pool = ConnectionPool(conninfo=dsn, min_size=1, max_size=4, open=True)

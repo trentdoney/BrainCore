@@ -24,6 +24,28 @@ Instructions for agents working in the BrainCore repo.
 4. Keep launch docs honest about smoke vs production benchmark framing.
 5. Keep the incident bundle current when launch status changes.
 
+## Push quality rules
+
+These are hard rules for a public repo that future employers may inspect:
+
+1. Use the GitHub workflow/publish skill path for public GitHub work.
+   If the local `gh` or `git push` credential path is unavailable, state
+   that explicitly and switch to an approved connector/API publish path
+   rather than improvising a direct push.
+2. Do not make routine changes directly on `main`. Use a pull request
+   and let required checks run before merge.
+3. Before pushing, run the local checks that cover the changed surface
+   and inspect the diff for stale docs, claims, and tests.
+4. If schema, migrations, benchmark claims, or public setup text changes,
+   update the matching tests and evidence rows in the same commit.
+5. After pushing, inspect the GitHub Actions result for the pushed SHA.
+   Do not leave the repo with a failing required check.
+6. Treat docs, tests, and CI as one public quality contract. If they
+   disagree, the change is not done.
+7. If a public branch or workflow fails, the follow-up must leave a clear
+   professional repair trail: root cause, fix, verification, and PR
+   context. Do not hide the failure or add vague cleanup commits.
+
 ## Human-readable boundaries
 
 - The example MCP server is a reference implementation only.
