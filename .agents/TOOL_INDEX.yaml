@@ -1,0 +1,52 @@
+tools:
+  - name: memory-search
+    description: hybrid retrieval over the preserve schema
+    source: examples/mcp_server/server.py
+  - name: memory-timeline
+    description: ordered event-frame timeline with provenance pointers
+    source: examples/mcp_server/server.py
+  - name: memory-before-after
+    description: nearest event frames before and after a timestamp
+    source: examples/mcp_server/server.py
+  - name: memory-causal-chain
+    description: episode-grouped causal chains from event frames
+    source: examples/mcp_server/server.py
+  - name: memory-search-procedure
+    description: search stored procedural workflow memory
+    source: examples/mcp_server/server.py
+  - name: memory-next-step
+    description: return the next evidence-grounded step from matching procedure memory
+    source: examples/mcp_server/server.py
+  - name: memory-what-did-we-try
+    description: return prior tried procedure steps with evidence and outcome data
+    source: examples/mcp_server/server.py
+  - name: memory-failed-remediations
+    description: return prior failed remediation steps with evidence and outcome data
+    source: examples/mcp_server/server.py
+  - name: memory-session-start
+    description: start or resume a working-memory task session
+    source: examples/mcp_server/server.py
+  - name: memory-session-update
+    description: update a working-memory task session
+    source: examples/mcp_server/server.py
+  - name: memory-session-close
+    description: close a working-memory task session
+    source: examples/mcp_server/server.py
+  - name: memory-session-list-active
+    description: list active non-expired working-memory task sessions
+    source: examples/mcp_server/server.py
+  - name: memory-working-add
+    description: add an ephemeral working-memory item to a task session
+    source: examples/mcp_server/server.py
+  - name: memory-working-list
+    description: list working-memory items, excluding expired rows by default
+    source: examples/mcp_server/server.py
+  - name: memory-working-mark-promotion-candidate
+    description: mark an evidence-backed working-memory item as a promotion candidate
+    source: examples/mcp_server/server.py
+  - name: memory-working-cleanup-expired
+    description: mark expired unpromoted working-memory items as expired
+    source: examples/mcp_server/server.py
+  - name: memory-search-visual
+    description: search OCR, caption, and layout metadata without exposing raw artifacts
+    source: examples/mcp_server/server.py

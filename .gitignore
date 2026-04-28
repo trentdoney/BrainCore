@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data directories
+data/
+logs/
+archive/
+backup/
+
+# Build artifacts
+*.bak*
+*.log
+benchmark-results.json
+__pycache__/
+*.pyc
+.fastembed_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Nightly cron flock
+.nightly.lock

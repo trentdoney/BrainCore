@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: BrainCore README
+    url: https://github.com/trentdoney/BrainCore/blob/main/README.md
+    about: Start here for the public project overview.
+  - name: Security policy
+    url: https://github.com/trentdoney/BrainCore/blob/main/SECURITY.md
+    about: Use this for security-sensitive issues.
