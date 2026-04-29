@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo-square.jpg" alt="BrainCore logo" />
+  <img src="assets/og-v5.jpg" alt="BrainCore logo" width="100%" />
   <h1>BrainCore</h1>
   <p>
     <strong>Autonomous memory system for AI infrastructure.</strong>
@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="BrainCore retrieval pipeline overview" />
+  <img src="assets/dashboard.jpg" alt="BrainCore retrieval pipeline overview" width="100%" />
 </p>
 
 ## Quality Standard
@@ -301,7 +301,9 @@ data sources
                            +------------------+
 ```
 
-![BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing.](assets/architecture.jpg)
+<p align="center">
+  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing." width="100%" />
+</p>
 
 ### Trust classes
 
