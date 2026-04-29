@@ -4,6 +4,7 @@
 - [ ] I did not introduce secrets, private paths, or private hostnames.
 - [ ] I ran `bash scripts/pre-push-gate.sh`.
 - [ ] I ran the relevant tests or explained why I could not.
+- [ ] I checked open PR comments/review threads and resolved or documented each item.
 
 ## If this touched migrations or schema
 
