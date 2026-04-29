@@ -51,6 +51,18 @@
         "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
         "17 reference stdio MCP tools"
       ]
+    },
+    {
+      "path": "assets/maintained-by-trent.jpg",
+      "status": "active",
+      "usage": "README author note banner",
+      "format": "JPEG",
+      "width": 1200,
+      "height": 397,
+      "sha256": "5db51cbc0a9e28904994a2f2f8584e2665db7f89cf6487eff30133ff494f76f7",
+      "visible_claims": [
+        "Maintained by Trent"
+      ]
     }
   ]
 }

@@ -643,6 +643,10 @@ BrainCore is an attempt to keep those lessons in a form an agent can
 query without pretending that every extracted fact deserves the same
 level of trust.
 
+<p align="center">
+  <img src="assets/maintained-by-trent.jpg" alt="Maintained by Trent" width="100%" />
+</p>
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).
