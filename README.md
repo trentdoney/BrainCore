@@ -208,7 +208,7 @@ text had similar words?"
 | `mcp/` | Python retrieval library | Owns read-side hybrid retrieval and typed request/response models |
 | `sql/` | Schema migrations | Defines the open-source preserve schema and launch hardening fixes |
 | `benchmarks/` | Smoke + production benchmark artifacts | Gives you reproducible proof and a claim-binding gate |
-| `examples/mcp_server/` | Minimal example MCP server | Shows how to expose BrainCore through FastMCP without pretending the repo ships a full server |
+| `examples/mcp_server/` | Reference stdio MCP server | Shows how to expose the reference retrieval tool surface through FastMCP without pretending the repo ships a hardened remote MCP appliance |
 | `cron/` | Nightly automation | Encodes the archive → extract → consolidate → publish cadence |
 | `scripts/pre-push-gate.sh` | Sanitization gate | Blocks hostnames, private paths, secrets, and private project leakage |
 | `tests/` and `src/__tests__/` | Launch smoke tests | Verifies imports, migrations, and open-source schema shape |

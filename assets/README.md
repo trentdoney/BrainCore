@@ -9,13 +9,15 @@ The current BrainCore visuals are committed in this repository. Files marked `Ac
 | `og.jpg` | Active | 1200 by 630 | JPEG | GitHub social preview |
 | `architecture.jpg` | Active | 1653 by 952 | JPEG | README architecture section |
 | `dashboard.png` | Active | 1672 by 941 | PNG | README retrieval pipeline overview |
-| `README.md` | Reference | n/a | Markdown | Asset manifest |
+| `manifest.json` | Reference | n/a | JSON | Hash and dimension manifest |
+| `README.md` | Reference | n/a | Markdown | Asset notes |
 
 Notes:
 
 - All visuals avoid hostnames, IP addresses, internal paths, and private
   metadata
 - The square logo is now the active README hero image
-- The architecture image is now the active README architecture asset
-- The dashboard image is the active retrieval pipeline overview
-- The social preview uses the sanitized `v2` results image
+- The dashboard, architecture, and social preview images are regenerated
+  current `v1.1.5` public README assets
+- Use `python scripts/verify-readme-assets.py` after any asset update to
+  confirm active asset hashes and dimensions still match `manifest.json`

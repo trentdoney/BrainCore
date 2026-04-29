@@ -447,7 +447,8 @@ right runtime conditions:
   on a reachable PostgreSQL + pgvector database
 - production relevance on the canonical smoke query set is not a valid
   public metric
-- the example MCP server is deliberately minimal
+- the example MCP server is a reference stdio server, not a hardened
+  remote MCP appliance
 - vector retrieval depends on a compatible embedding service
 - the eval runner reports grounding indirectly through benchmark
   artifacts rather than as a standalone live metric

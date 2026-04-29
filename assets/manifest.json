@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "description": "Active BrainCore README and GitHub presentation assets.",
+  "assets": [
+    {
+      "path": "assets/logo-square.jpg",
+      "status": "active",
+      "usage": "README hero block",
+      "format": "JPEG",
+      "width": 500,
+      "height": 500,
+      "sha256": "b96163fb419912a0fc1087e61b248092ea58175443c5cecc1eaa8323fecd697a"
+    },
+    {
+      "path": "assets/logo-horizontal.png",
+      "status": "active",
+      "usage": "Alternate wordmark",
+      "format": "PNG",
+      "width": 600,
+      "height": 70,
+      "sha256": "5cf062b64c26779bc044e270a3a0f2d422301b65bdb6021b3bf89857b4aa1a0c"
+    },
+    {
+      "path": "assets/og.jpg",
+      "status": "active",
+      "usage": "GitHub social preview",
+      "format": "JPEG",
+      "width": 1200,
+      "height": 630,
+      "sha256": "429fdc69e23f7c48d665d2b3850bc16c31a3fb51b9fb8cb321e110e26108b90d",
+      "visible_claims": [
+        "v1.1.5",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
+        "17 reference stdio MCP tools"
+      ]
+    },
+    {
+      "path": "assets/architecture.jpg",
+      "status": "active",
+      "usage": "README architecture section",
+      "format": "JPEG",
+      "width": 1653,
+      "height": 952,
+      "sha256": "f1c6ffa3e7b938206e918479ee045bc24ea6e8afb180f4f4b64196cc5e3a6ff7",
+      "visible_claims": [
+        "v1.1.5",
+        "38-table preserve schema",
+        "17 reference stdio MCP tools",
+        "26,966 facts",
+        "98.52% fact-evidence coverage"
+      ]
+    },
+    {
+      "path": "assets/dashboard.png",
+      "status": "active",
+      "usage": "README retrieval pipeline overview",
+      "format": "PNG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "f0cf2235b3813fd9ec7fc38950475b5ee030a3b39b8fef5862b82eed19fc6f1d",
+      "visible_claims": [
+        "v1.1.5",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
+        "17 reference stdio MCP tools"
+      ]
+    }
+  ]
+}
