@@ -92,12 +92,36 @@ def image_size(path: Path) -> tuple[int, int]:
     raise AssetError(f"unsupported image format: {path}")
 
 
+def manifest_assets(manifest: object) -> list[dict[str, object]]:
+    if not isinstance(manifest, dict):
+        raise AssetError("manifest root must be a JSON object")
+
+    assets = manifest.get("assets")
+    if not isinstance(assets, list):
+        raise AssetError("manifest must contain an assets list")
+    if not assets:
+        raise AssetError("manifest assets list must not be empty")
+
+    for index, asset in enumerate(assets):
+        if not isinstance(asset, dict):
+            raise AssetError(f"manifest assets[{index}] must be an object")
+
+    return assets
+
+
 def main() -> int:
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        assets = manifest_assets(manifest)
+    except (json.JSONDecodeError, AssetError) as exc:
+        print("README asset verification failed:", file=sys.stderr)
+        print(f"- {MANIFEST.relative_to(ROOT)}: {exc}", file=sys.stderr)
+        return 1
+
     failures: list[str] = []
     seen: set[str] = set()
 
-    for asset in manifest.get("assets", []):
+    for asset in assets:
         asset_failures: list[str] = []
         rel_path = asset["path"]
         if rel_path in seen:
