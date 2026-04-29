@@ -190,10 +190,10 @@ function yamlSafe(text: string): string {
   if (
     text === "" ||
     /[:#{}[\],&*?|>!%@`]/.test(text) ||
-    text.includes("\n") ||
+    /[\r\n]/.test(text) ||
     /^(?:null|true|false|yes|no|on|off|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i.test(text)
   ) {
-    return `"${text.replace(/"/g, '\\"').replace(/\n/g, " ")}"`;
+    return JSON.stringify(text.replace(/[\r\n]+/g, " "));
   }
   return text;
 }

@@ -70,7 +70,7 @@ function makeSqlStub(responses: unknown[][]) {
 }
 
 describe("publishNotes safety", () => {
-  test("redacts secrets from markdown content and generated filenames", async () => {
+  test("redacts secrets and escapes YAML frontmatter in markdown output", async () => {
     const publishDir = await mkdtemp(join(tmpdir(), "braincore-publish-"));
     process.env.BRAINCORE_PUBLISH_DIR = publishDir;
 
@@ -81,6 +81,8 @@ describe("publishNotes safety", () => {
       const apiSecret = ["TEST", "REDACTION", "API", "PLACEHOLDER"].join("_");
       const bearerSecret = `Bearer ${["TEST", "REDACTION", "BEARER", "PLACEHOLDER"].join("_")}`;
       const passwordSecret = ["Test", "Password", "Placeholder"].join("");
+      const yamlEscapingTitle = String.raw`Path: C:\braincore\"quoted"`;
+      const yamlEscapingNarrative = String.raw`Use C:\braincore\"quoted" safely.`;
       const staleFile = join(publishDir, "old-unredacted-title.md");
       await writeFile(staleFile, "stale unredacted publish output", "utf-8");
       const { sql, calls } = makeSqlStub([
@@ -113,22 +115,39 @@ describe("publishNotes safety", () => {
             updated_at: new Date("2026-04-02T00:00:00Z"),
             scope_entity_name: "Public Demo",
           },
+          {
+            memory_id: "44444444-4444-4444-4444-444444444444",
+            memory_type: "pattern",
+            title: yamlEscapingTitle,
+            narrative: yamlEscapingNarrative,
+            support_count: 1,
+            contradiction_count: 0,
+            confidence: 0.88,
+            scope_path: "project:public-demo",
+            fingerprint: "d".repeat(64),
+            created_at: new Date("2026-04-01T00:00:00Z"),
+            updated_at: new Date("2026-04-02T00:00:00Z"),
+            scope_entity_name: "Public Demo",
+          },
         ],
         [{ publish_id: "33333333-3333-3333-3333-333333333333", content_hash: "old", file_path: staleFile }],
+        [],
+        [],
         [],
         [],
         [],
       ]);
 
       const result = await publishNotes(sql);
-      expect(result.published).toBe(2);
+      expect(result.published).toBe(3);
 
       const files = await readdir(publishDir);
-      expect(files).toHaveLength(2);
+      expect(files).toHaveLength(3);
       expect(existsSync(staleFile)).toBe(false);
       expect(files.every((file) => !file.includes(apiSecret))).toBe(true);
       expect(files).toContain("redacted_api_key-11111111-1111-1111-1111-111111111111.md");
       expect(files).toContain("redacted_api_key-22222222-2222-2222-2222-222222222222.md");
+      expect(files).toContain("path_c_braincore_quoted-44444444-4444-4444-4444-444444444444.md");
 
       const content = await readFile(
         join(publishDir, "redacted_api_key-11111111-1111-1111-1111-111111111111.md"),
@@ -142,6 +161,21 @@ describe("publishNotes safety", () => {
       expect(content).not.toContain(passwordSecret);
       expect(calls[0].text).toContain("m.tenant = ?");
       expect(calls[0].values).toContain("test-tenant");
+
+      const escapedContent = await readFile(
+        join(publishDir, "path_c_braincore_quoted-44444444-4444-4444-4444-444444444444.md"),
+        "utf-8",
+      );
+      const { parse } = await import("yaml");
+      const frontmatterEnd = escapedContent.indexOf("\n---", 4);
+      expect(frontmatterEnd).toBeGreaterThan(4);
+      const frontmatter = escapedContent.slice(4, frontmatterEnd);
+      const parsedFrontmatter = parse(frontmatter) as { name?: string; description?: string };
+
+      expect(escapedContent).toContain(`name: ${JSON.stringify(yamlEscapingTitle)}`);
+      expect(escapedContent).toContain(`description: ${JSON.stringify(yamlEscapingNarrative)}`);
+      expect(parsedFrontmatter.name).toBe(yamlEscapingTitle);
+      expect(parsedFrontmatter.description).toBe(yamlEscapingNarrative);
     } finally {
       await rm(publishDir, { recursive: true, force: true });
     }
