@@ -98,6 +98,7 @@ def main() -> int:
     seen: set[str] = set()
 
     for asset in manifest.get("assets", []):
+        asset_failures: list[str] = []
         rel_path = asset["path"]
         if rel_path in seen:
             failures.append(f"{rel_path}: duplicate manifest entry")
@@ -111,7 +112,7 @@ def main() -> int:
 
         actual_hash = sha256(path)
         if actual_hash != asset["sha256"]:
-            failures.append(
+            asset_failures.append(
                 f"{rel_path}: sha256 mismatch {actual_hash} != {asset['sha256']}"
             )
 
@@ -123,12 +124,15 @@ def main() -> int:
 
         expected_size = (asset["width"], asset["height"])
         if (width, height) != expected_size:
-            failures.append(
+            asset_failures.append(
                 f"{rel_path}: dimension mismatch {width}x{height} != "
                 f"{expected_size[0]}x{expected_size[1]}"
             )
 
-        print(f"OK {rel_path} {width}x{height} {actual_hash}")
+        if asset_failures:
+            failures.extend(asset_failures)
+        else:
+            print(f"OK {rel_path} {width}x{height} {actual_hash}")
 
     if failures:
         print("\nREADME asset verification failed:", file=sys.stderr)
