@@ -83,6 +83,7 @@ describe("publishNotes safety", () => {
       const passwordSecret = ["Test", "Password", "Placeholder"].join("");
       const yamlEscapingTitle = String.raw`Path: C:\braincore\"quoted"`;
       const yamlEscapingNarrative = String.raw`Use C:\braincore\"quoted" safely.`;
+      const yamlPlainScalarEntity = " - release blocker ";
       const staleFile = join(publishDir, "old-unredacted-title.md");
       await writeFile(staleFile, "stale unredacted publish output", "utf-8");
       const { sql, calls } = makeSqlStub([
@@ -127,7 +128,7 @@ describe("publishNotes safety", () => {
             fingerprint: "d".repeat(64),
             created_at: new Date("2026-04-01T00:00:00Z"),
             updated_at: new Date("2026-04-02T00:00:00Z"),
-            scope_entity_name: "Public Demo",
+            scope_entity_name: yamlPlainScalarEntity,
           },
         ],
         [{ publish_id: "33333333-3333-3333-3333-333333333333", content_hash: "old", file_path: staleFile }],
@@ -170,12 +171,14 @@ describe("publishNotes safety", () => {
       const frontmatterEnd = escapedContent.indexOf("\n---", 4);
       expect(frontmatterEnd).toBeGreaterThan(4);
       const frontmatter = escapedContent.slice(4, frontmatterEnd);
-      const parsedFrontmatter = parse(frontmatter) as { name?: string; description?: string };
+      const parsedFrontmatter = parse(frontmatter) as { name?: string; description?: string; entity?: string };
 
       expect(escapedContent).toContain(`name: ${JSON.stringify(yamlEscapingTitle)}`);
       expect(escapedContent).toContain(`description: ${JSON.stringify(yamlEscapingNarrative)}`);
+      expect(escapedContent).toContain(`entity: ${JSON.stringify(yamlPlainScalarEntity)}`);
       expect(parsedFrontmatter.name).toBe(yamlEscapingTitle);
       expect(parsedFrontmatter.description).toBe(yamlEscapingNarrative);
+      expect(parsedFrontmatter.entity).toBe(yamlPlainScalarEntity);
     } finally {
       await rm(publishDir, { recursive: true, force: true });
     }

@@ -644,7 +644,7 @@ query without pretending that every extracted fact deserves the same
 level of trust.
 
 <p align="center">
-  <img src="assets/maintained-by-trent.jpg" alt="Maintained by Trent" width="100%" />
+  <img src="assets/maintained-by-trent.jpg" alt="Built by Trent Doney for SynapseGrid Labs. Practical AI infrastructure for autonomous agents, memory systems, and automation. Follow @trentdoney." width="100%" />
 </p>
 
 ## Contributing

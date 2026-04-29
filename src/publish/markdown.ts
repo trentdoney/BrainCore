@@ -187,15 +187,7 @@ function resolveInsideDir(rootDir: string, filePath: string): string | null {
 }
 
 function yamlSafe(text: string): string {
-  if (
-    text === "" ||
-    /[:#{}[\],&*?|>!%@`]/.test(text) ||
-    /[\r\n]/.test(text) ||
-    /^(?:null|true|false|yes|no|on|off|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i.test(text)
-  ) {
-    return JSON.stringify(text.replace(/[\r\n]+/g, " "));
-  }
-  return text;
+  return JSON.stringify(text.replace(/[\r\n]+/g, " "));
 }
 
 function summarize(text: string, maxLen: number): string {

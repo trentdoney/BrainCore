@@ -61,7 +61,10 @@
       "height": 397,
       "sha256": "5db51cbc0a9e28904994a2f2f8584e2665db7f89cf6487eff30133ff494f76f7",
       "visible_claims": [
-        "Maintained by Trent"
+        "Built by Trent Doney",
+        "SynapseGrid Labs",
+        "Practical AI infrastructure for autonomous agents, memory systems, and automation.",
+        "Follow @trentdoney"
       ]
     }
   ]
