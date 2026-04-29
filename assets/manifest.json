@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "description": "Active BrainCore README and GitHub presentation assets.",
+  "assets": [
+    {
+      "path": "assets/og.jpg",
+      "status": "active",
+      "usage": "README hero block and social preview source",
+      "format": "JPEG",
+      "width": 1600,
+      "height": 841,
+      "sha256": "e68e100335fdbd9ee0e39d0e4480880384f6ef26117defda491c35b73feddb4d",
+      "visible_claims": [
+        "v1.1.5",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
+        "17 reference stdio MCP tools"
+      ]
+    },
+    {
+      "path": "assets/architecture.jpg",
+      "status": "active",
+      "usage": "README architecture section",
+      "format": "JPEG",
+      "width": 1600,
+      "height": 921,
+      "sha256": "b0e4762dea6e4079a794802a5faa3c77bf0b4882a2ae23788581ac9e426eaf9e",
+      "visible_claims": [
+        "v1.1.5",
+        "38-table preserve schema",
+        "17 reference stdio MCP tools",
+        "26,966 facts",
+        "98.52% fact-evidence coverage"
+      ]
+    },
+    {
+      "path": "assets/dashboard.jpg",
+      "status": "active",
+      "usage": "README retrieval pipeline overview",
+      "format": "JPEG",
+      "width": 1600,
+      "height": 900,
+      "sha256": "9e11ea7db1fabd8d97b378e5179b7510051aba3bf50bc44c682e2d531d16a49b",
+      "visible_claims": [
+        "v1.1.5",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
+        "17 reference stdio MCP tools"
+      ]
+    }
+  ]
+}

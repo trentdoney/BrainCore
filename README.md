@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo-square.jpg" alt="BrainCore logo" />
+  <img src="assets/og.jpg" alt="BrainCore logo" width="100%" />
   <h1>BrainCore</h1>
   <p>
     <strong>Autonomous memory system for AI infrastructure.</strong>
@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="BrainCore retrieval pipeline overview" />
+  <img src="assets/dashboard.jpg" alt="BrainCore retrieval pipeline overview" width="100%" />
 </p>
 
 ## Quality Standard
@@ -208,7 +208,7 @@ text had similar words?"
 | `mcp/` | Python retrieval library | Owns read-side hybrid retrieval and typed request/response models |
 | `sql/` | Schema migrations | Defines the open-source preserve schema and launch hardening fixes |
 | `benchmarks/` | Smoke + production benchmark artifacts | Gives you reproducible proof and a claim-binding gate |
-| `examples/mcp_server/` | Minimal example MCP server | Shows how to expose BrainCore through FastMCP without pretending the repo ships a full server |
+| `examples/mcp_server/` | Reference stdio MCP server | Shows how to expose the reference retrieval tool surface through FastMCP without pretending the repo ships a hardened remote MCP appliance |
 | `cron/` | Nightly automation | Encodes the archive → extract → consolidate → publish cadence |
 | `scripts/pre-push-gate.sh` | Sanitization gate | Blocks hostnames, private paths, secrets, and private project leakage |
 | `tests/` and `src/__tests__/` | Launch smoke tests | Verifies imports, migrations, and open-source schema shape |
@@ -301,7 +301,9 @@ data sources
                            +------------------+
 ```
 
-![BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing.](assets/architecture.jpg)
+<p align="center">
+  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing." width="100%" />
+</p>
 
 ### Trust classes
 

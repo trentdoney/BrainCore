@@ -37,6 +37,8 @@ BrainCore is a public repo. Treat every push as client-visible:
    benchmark-claim, tool-index, and sanitization checks listed below.
 4. After pushing, inspect GitHub Actions for the pushed SHA and keep working
    until required checks pass.
+5. Before merge, inspect open PR comments and review threads. Resolve,
+   address with rationale, or explicitly document every remaining item.
 
 ## Required checks
 
@@ -86,3 +88,4 @@ rather than documenting a workaround.
 - New claims are backed by evidence files.
 - Sanitization passes.
 - The docs still reflect the repo as shipped.
+- Open PR comments and review threads have been addressed or documented.
