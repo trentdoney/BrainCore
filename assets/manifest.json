@@ -3,25 +3,7 @@
   "description": "Active BrainCore README and GitHub presentation assets.",
   "assets": [
     {
-      "path": "assets/logo-square.jpg",
-      "status": "active",
-      "usage": "Alternate square logo",
-      "format": "JPEG",
-      "width": 500,
-      "height": 500,
-      "sha256": "b96163fb419912a0fc1087e61b248092ea58175443c5cecc1eaa8323fecd697a"
-    },
-    {
-      "path": "assets/logo-horizontal.png",
-      "status": "active",
-      "usage": "Alternate wordmark",
-      "format": "PNG",
-      "width": 600,
-      "height": 70,
-      "sha256": "5cf062b64c26779bc044e270a3a0f2d422301b65bdb6021b3bf89857b4aa1a0c"
-    },
-    {
-      "path": "assets/og-v5.jpg",
+      "path": "assets/og.jpg",
       "status": "active",
       "usage": "README hero block and social preview source",
       "format": "JPEG",

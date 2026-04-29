@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/og-v5.jpg" alt="BrainCore logo" width="100%" />
+  <img src="assets/og.jpg" alt="BrainCore logo" width="100%" />
   <h1>BrainCore</h1>
   <p>
     <strong>Autonomous memory system for AI infrastructure.</strong>
