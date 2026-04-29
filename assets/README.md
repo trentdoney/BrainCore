@@ -4,10 +4,9 @@ The current BrainCore visuals are committed in this repository. Files marked `Ac
 
 | File | Status | Dimensions | Format | Usage |
 |---|---|---|---|---|
-| `og-v5.jpg` | Active | 1600 by 841 | JPEG | README hero block |
+| `og-v5.jpg` | Active | 1600 by 841 | JPEG | README hero block and social preview source |
 | `logo-square.jpg` | Active | 500 by 500 | JPEG | Alternate square logo |
 | `logo-horizontal.png` | Active | 600 by 70 | PNG | Alternate wordmark |
-| `og.jpg` | Active | 1200 by 630 | JPEG | GitHub social preview |
 | `architecture.jpg` | Active | 1600 by 921 | JPEG | README architecture section |
 | `dashboard.jpg` | Active | 1600 by 900 | JPEG | README retrieval pipeline overview |
 | `dashboard.png` | Retired | 1672 by 941 | PNG | Superseded README dashboard |
@@ -18,7 +17,7 @@ Notes:
 
 - All visuals avoid hostnames, IP addresses, internal paths, and private
   metadata
-- `og-v5.jpg` is the active README hero image
+- `og-v5.jpg` is the active README hero and social preview source image
 - The dashboard, architecture, and social preview images are regenerated
   current `v1.1.5` public README assets
 - Use `python scripts/verify-readme-assets.py` after any asset update to
