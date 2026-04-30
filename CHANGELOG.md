@@ -5,7 +5,9 @@ All notable changes to BrainCore are documented in this file.
 ## [Unreleased]
 
 ### Changed
-- No unreleased changes.
+- Added repository CODEOWNERS for `@trentdoney` and `@SynapseOpsAgent`.
+- Aligned the example MCP server with the repository-wide Python 3.11+
+  support floor and accepted the NumPy 2.4.x dependency line.
 
 ## [1.1.6] - 2026-04-30
 
