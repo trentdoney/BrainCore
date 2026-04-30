@@ -1,6 +1,6 @@
 {
   "date": "2026-04-26",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "graph-smoke-regression",
   "fixture": "benchmarks/seed_smoke.sql + benchmarks/seed_graph_smoke.sql",
   "framing_note": "Synthetic graph retrieval smoke. Use this only to verify graph stream wiring, path explanations, and graph-disabled behavior. Do not cite these metrics as production retrieval quality.",

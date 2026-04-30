@@ -87,7 +87,7 @@ from psycopg_pool import ConnectionPool
 # Config
 # ---------------------------------------------------------------------------
 
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 RESULT_DATE = "2026-04-09"
 TOP_K = 10
 RRF_K = 60  # matches mcp/memory_search.py:27 RRF_K constant

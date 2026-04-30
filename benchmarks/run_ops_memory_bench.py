@@ -37,7 +37,7 @@ from run_retrieval import (  # noqa: E402
 )
 
 RESULT_DATE = "2026-04-26"
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCHMARKS_DIR = REPO_ROOT / "benchmarks"
 RESULTS_DIR = BENCHMARKS_DIR / "results"

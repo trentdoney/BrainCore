@@ -1,6 +1,6 @@
 {
   "date": "2026-04-26",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "ops-memory-smoke-regression",
   "fixture": "benchmarks/seed_smoke.sql + benchmarks/seed_event_timeline_smoke.sql + benchmarks/seed_graph_smoke.sql",
   "framing_note": "Synthetic BrainCoreOpsMemoryBench regression fixture. It verifies implemented retrieval behavior for ops-memory recall, ordering, isolation, graph-path explanations, procedure reuse, procedure operational tools, working-memory promotion gates, retention review-only decisions, multimodal metadata/vector retrieval, and deterministic reranking. It is not a production quality benchmark.",

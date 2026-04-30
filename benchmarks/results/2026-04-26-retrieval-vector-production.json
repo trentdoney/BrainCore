@@ -1,6 +1,6 @@
 {
   "date": "2026-04-26",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "production-corpus-vector-smoke",
   "framing_note": "Vector-enabled retrieval smoke run against a naturally-populated BrainCore deployment. This artifact exists to verify the vector stream is exercised with config.vector_disabled=false; do not cite relevance_at_10 or latency as representative retrieval-quality claims.",
   "corpus": {

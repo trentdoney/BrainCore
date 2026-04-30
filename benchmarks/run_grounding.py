@@ -51,7 +51,7 @@ from typing import Any
 
 import psycopg
 
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 RESULT_DATE = "2026-04-09"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

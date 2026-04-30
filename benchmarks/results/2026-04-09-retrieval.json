@@ -1,6 +1,6 @@
 {
   "date": "2026-04-09",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "smoke-regression",
   "fixture": "benchmarks/seed_smoke.sql",
   "framing_note": "This JSON is a pipeline-regression smoke baseline produced against the synthetic seed_smoke.sql fixture (9 facts / 9 entities / 15 memories tuned to the 12 canonical queries). Use these numbers as a regression gate on the retrieval pipeline wiring, NOT as a representative measurement of BrainCore's retrieval quality on arbitrary workloads. Do not cite relevance_at_10 (or any latency value) as a performance claim \u2014 the public README's headline retrieval metrics come from a separate production-corpus benchmark.",

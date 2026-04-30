@@ -1,6 +1,6 @@
 {
   "date": "2026-04-26",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "event-timeline-smoke-regression",
   "fixture": "benchmarks/seed_smoke.sql + benchmarks/seed_event_timeline_smoke.sql",
   "framing_note": "Synthetic event-frame timeline smoke. Use this only to verify timeline filtering, ordering, evidence links, and scope isolation. Do not cite these metrics as production timeline quality.",
