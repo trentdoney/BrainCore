@@ -5,7 +5,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/trentdoney/BrainCore.git"
+    "url": "https://github.com/SynapseGrid-Labs/BrainCore.git"
   },
   "license": "MIT",
   "scripts": {

@@ -8,11 +8,11 @@
     BrainCore extracts, preserves, and retrieves operational knowledge from incidents, coding sessions, chat messages, and monitoring data, building a persistent knowledge graph that AI agents can query.
   </p>
   <p>
-    <a href="https://github.com/trentdoney/BrainCore/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/trentdoney/BrainCore" /></a>
-    <a href="https://github.com/trentdoney/BrainCore"><img alt="Stack" src="https://img.shields.io/badge/stack-typescript%20%2B%20python-blue" /></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/trentdoney/BrainCore" /></a>
+    <a href="https://github.com/SynapseGrid-Labs/BrainCore/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/SynapseGrid-Labs/BrainCore" /></a>
+    <a href="https://github.com/SynapseGrid-Labs/BrainCore"><img alt="Stack" src="https://img.shields.io/badge/stack-typescript%20%2B%20python-blue" /></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/SynapseGrid-Labs/BrainCore" /></a>
     <img alt="PostgreSQL 15+" src="https://img.shields.io/badge/postgres-15%2B-336791" />
-    <a href="https://github.com/trentdoney/BrainCore/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/trentdoney/BrainCore/ci.yml" /></a>
+    <a href="https://github.com/SynapseGrid-Labs/BrainCore/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/SynapseGrid-Labs/BrainCore/ci.yml" /></a>
   </p>
   <p>
     <strong>Production launch measurements, April 2026:</strong> 26,966 facts · P50 71.6 ms · P95 85.2 ms with vector stream disabled · fact-evidence coverage 98.52%
