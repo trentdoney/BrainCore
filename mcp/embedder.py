@@ -28,7 +28,7 @@ down-weights naturally.
 Production deployments should point ``BRAINCORE_EMBED_URL`` at a real
 embedding service that returns 384-dim vectors from the same model family
 as the embeddings stored in ``preserve.{fact,memory,segment,episode}``.
-The reference model for the public v1.1.5 schema is ``braincore-minilm-v1``
+The reference model for the public launch schema is ``braincore-minilm-v1``
 (384-dim), matching ``mcp/memory_models.py``'s default. Downstream
 Vault-style deployments typically run their own ``/embed`` HTTP
 endpoint in a sibling service.

@@ -785,7 +785,7 @@ _FIXTURE_CLAIMS_YAML = """\
 
 _FIXTURE_RETRIEVAL_JSON = {
     "date": "2026-04-09",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "corpus": {"facts": 42, "entities": 17, "published_memories": 3},
     "latency_ms": {"p50": 22.5, "p95": 25.3, "p99": 27.1},
     "quality": {"relevance_at_10": 1.0, "canonical_queries": 12},
@@ -793,7 +793,7 @@ _FIXTURE_RETRIEVAL_JSON = {
 
 _FIXTURE_GROUNDING_JSON = {
     "date": "2026-04-09",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "grounding_rate": 0.75,
     "total_cases": 4,
     "grounded_cases": 3,

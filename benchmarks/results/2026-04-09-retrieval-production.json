@@ -1,6 +1,6 @@
 {
   "date": "2026-04-09",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "production-corpus",
   "source": "naturally-populated production BrainCore deployment, read-only access",
   "reproduction_dsn": "operator-provided (requires access to a populated BrainCore instance)",

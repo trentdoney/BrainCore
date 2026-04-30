@@ -1,12 +1,29 @@
 # Changelog
 
-All notable changes to BrainCore are documented in this file. This public
-release lists the capabilities included in the initial public release.
+All notable changes to BrainCore are documented in this file.
 
 ## [Unreleased]
 
 ### Changed
 - No unreleased changes.
+
+## [1.1.6] - 2026-04-30
+
+Public readiness patch for the SynapseGrid Labs repository promotion.
+
+### Changed
+- Updated public repository links and release metadata for
+  `SynapseGrid-Labs/BrainCore`.
+- Updated README and GitHub presentation assets for the `v1.1.6` release
+  surface.
+- Updated the pinned CodeQL action SHA and the MCP example `pgvector`
+  lower bound through the curated dependency gate.
+
+### Fixed
+- Hardened Codex shared ingestion against out-of-root document paths.
+- Fixed YAML/frontmatter string escaping for backslashes and quoted values.
+- Verified README asset manifests and public numeric claims after the visual
+  refresh.
 
 ## [1.1.5] - 2026-04-28
 

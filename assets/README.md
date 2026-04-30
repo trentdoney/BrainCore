@@ -17,7 +17,7 @@ Notes:
   metadata
 - `og.jpg` is the active README hero and social preview source image
 - The dashboard, architecture, and social preview images are regenerated
-  current `v1.1.5` public README assets
+  current `v1.1.6` public README assets
 - `maintained-by-trent.jpg` is the active author note banner
 - Use `python scripts/verify-readme-assets.py` after any asset update to
   confirm active asset hashes and dimensions still match `manifest.json`

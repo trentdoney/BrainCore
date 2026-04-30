@@ -90,7 +90,7 @@ docker rm -f braincore-bench-pg
 ```json
 {
   "date": "2026-04-26",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "ops-memory-smoke-regression",
   "fixture": "benchmarks/seed_smoke.sql + benchmarks/seed_event_timeline_smoke.sql + benchmarks/seed_graph_smoke.sql",
   "framing_note": "<warning: synthetic regression fixture, not a production quality benchmark>",
@@ -167,7 +167,7 @@ vector retrieval when the embedder is available.
 ```json
 {
   "date": "2026-04-09",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "smoke-regression",
   "fixture": "synthetic fixture",
   "framing_note": "<warning: this is a pipeline-regression baseline, not a representative measurement; do NOT cite relevance_at_10 or any latency value as a performance claim>",
@@ -187,7 +187,7 @@ The top fields (`framing`, `fixture` or `source`, `framing_note`) are self-descr
 ```json
 {
   "date": "2026-04-09",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "smoke-regression",
   "fixture": "synthetic fixture",
   "framing_note": "<warning: smoke-regression signal only; do NOT cite grounding_rate as a representative claim>",
@@ -205,7 +205,7 @@ The top fields (`framing`, `fixture` or `source`, `framing_note`) are self-descr
 ```json
 {
   "date": "2026-04-09",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "framing": "production-corpus",
   "source": "naturally-populated production BrainCore deployment, direct SQL count",
   "grounding_rate": 0.9852,
