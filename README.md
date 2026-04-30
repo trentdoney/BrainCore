@@ -643,6 +643,10 @@ BrainCore is an attempt to keep those lessons in a form an agent can
 query without pretending that every extracted fact deserves the same
 level of trust.
 
+<p align="center">
+  <img src="assets/maintained-by-trent.jpg" alt="Built by Trent Doney for SynapseGrid Labs. Practical AI infrastructure for autonomous agents, memory systems, and automation. Follow @trentdoney." width="100%" />
+</p>
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md).

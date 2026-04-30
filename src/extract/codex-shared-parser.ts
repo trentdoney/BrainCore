@@ -17,9 +17,9 @@
  * Returns DeterministicResult compatible with load.ts.
  */
 
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir, realpath } from "fs/promises";
 import { existsSync } from "fs";
-import { join, basename } from "path";
+import { isAbsolute, join, relative, resolve, sep } from "path";
 import { parse as parseYAML } from "yaml";
 import type { DeterministicResult, Entity, Fact, Segment, Episode } from "./deterministic";
 
@@ -170,9 +170,9 @@ export async function parseCodexShared(
     // Try to read the full domain document for richer content
     let fullContent = "";
     let frontmatter: DomainDocFrontmatter = {};
-    const docPath = join(dir, doc.rel_path);
+    const docPath = await resolveCodexDocPath(dir, doc.rel_path);
 
-    if (existsSync(docPath)) {
+    if (docPath && existsSync(docPath)) {
       try {
         const raw = await readFile(docPath, "utf-8");
         const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -388,6 +388,33 @@ export async function parseCodexShared(
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+async function resolveCodexDocPath(baseDir: string, relPath: unknown): Promise<string | null> {
+  if (typeof relPath !== "string" || relPath.trim() === "" || isAbsolute(relPath)) {
+    return null;
+  }
+
+  const basePath = resolve(baseDir);
+  const candidatePath = resolve(basePath, relPath);
+  if (!isPathInsideDir(basePath, candidatePath)) {
+    return null;
+  }
+
+  try {
+    const [baseRealPath, candidateRealPath] = await Promise.all([
+      realpath(basePath),
+      realpath(candidatePath),
+    ]);
+    return isPathInsideDir(baseRealPath, candidateRealPath) ? candidateRealPath : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPathInsideDir(baseDir: string, targetPath: string): boolean {
+  const rel = relative(baseDir, targetPath);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
 
 function resolveProject(cwd: string, gitRoot?: string): string {
   const path = gitRoot || cwd;
