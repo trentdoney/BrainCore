@@ -15,8 +15,7 @@
         "26,966 facts",
         "38-table preserve schema",
         "98.52% fact-evidence coverage",
-        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
-        "17 reference stdio MCP tools"
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled"
       ]
     },
     {
@@ -30,9 +29,7 @@
       "visible_claims": [
         "v1.1.6",
         "38-table preserve schema",
-        "17 reference stdio MCP tools",
-        "26,966 facts",
-        "98.52% fact-evidence coverage"
+        "17 reference stdio MCP tools"
       ]
     },
     {
