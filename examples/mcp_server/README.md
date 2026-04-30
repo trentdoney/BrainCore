@@ -16,7 +16,7 @@ service without a separate write-tool review.
 
 ## Prerequisites
 
-- Python 3.10 or newer
+- Python 3.11 or newer
 - A running BrainCore PostgreSQL database with the full migration set
   applied against the `preserve` schema
 - The `BRAINCORE_POSTGRES_DSN` environment variable set to a libpq DSN
@@ -34,6 +34,10 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+The example intentionally follows the repository-wide Python 3.11+
+support floor. Its NumPy dependency may use the 2.4.x line because that
+line requires Python 3.11 or newer.
 
 ## Run
 
