@@ -1,5 +1,5 @@
 mcp[cli]>=1.27.0
-psycopg[binary]>=3.3.3
+psycopg[binary]>=3.3.4
 psycopg-pool>=3.3.0
 pydantic>=2.13.3
 numpy>=2.4.4
