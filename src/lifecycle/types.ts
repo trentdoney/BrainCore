@@ -67,6 +67,31 @@ export const LIFECYCLE_EVENT_TYPES = [
 ] as const;
 export type LifecycleEventType = typeof LIFECYCLE_EVENT_TYPES[number];
 
+export const LIFECYCLE_CUE_TYPES = [
+  "entity",
+  "action",
+  "tool",
+  "failure_mode",
+  "goal",
+  "file_path",
+  "policy",
+  "user_preference",
+  "environment",
+  "project",
+  "procedure",
+  "session",
+] as const;
+export type LifecycleCueType = typeof LIFECYCLE_CUE_TYPES[number];
+
+export const LIFECYCLE_CUE_EXTRACTION_METHODS = [
+  "template",
+  "keyword",
+  "entity",
+  "llm",
+  "manual",
+] as const;
+export type LifecycleCueExtractionMethod = typeof LIFECYCLE_CUE_EXTRACTION_METHODS[number];
+
 export interface LifecycleTarget {
   targetKind: LifecycleTargetKind;
   targetId: string;
@@ -90,4 +115,12 @@ export function isFeedbackSignal(value: string | undefined): value is FeedbackSi
 
 export function isLifecycleEventType(value: string | undefined): value is LifecycleEventType {
   return LIFECYCLE_EVENT_TYPES.includes(value as LifecycleEventType);
+}
+
+export function isLifecycleCueType(value: string | undefined): value is LifecycleCueType {
+  return LIFECYCLE_CUE_TYPES.includes(value as LifecycleCueType);
+}
+
+export function isLifecycleCueExtractionMethod(value: string | undefined): value is LifecycleCueExtractionMethod {
+  return LIFECYCLE_CUE_EXTRACTION_METHODS.includes(value as LifecycleCueExtractionMethod);
 }

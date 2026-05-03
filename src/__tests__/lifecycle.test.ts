@@ -17,6 +17,8 @@ import {
   LifecycleTargetNotFoundError,
   enqueueLifecycleEvent,
   listLifecycleEvents,
+  normalizeLifecycleCueExtractionMethod,
+  normalizeLifecycleCueType,
   recordContextRecallAudit,
   backfillLifecycleIntelligence,
 } from "../lifecycle/operations";
@@ -69,11 +71,36 @@ describe("lifecycle evidence boundary", () => {
       eventId: "evt-created",
       eventType: "memory_written",
       sourceService: "agentfanout",
-      payload: { producedTargetKind: "memory" },
+      payload: {
+        producedTargetKind: "memory",
+        producedTargetId: "33333333-3333-3333-3333-333333333333",
+      },
       evidenceRefs: [],
     })).rejects.toThrow("Lifecycle events cannot directly create durable memories");
 
     expect(calls).toHaveLength(0);
+  });
+
+  test("requires produced target kind and id as a pair", async () => {
+    const { sql, calls } = makeSqlStub([]);
+
+    await expect(enqueueLifecycleEvent(sql, {
+      tenant: "tenant-a",
+      eventId: "evt-created",
+      eventType: "fact_inserted",
+      sourceService: "agentfanout",
+      payload: { producedTargetKind: "fact" },
+      evidenceRefs: [{ segment_id: "33333333-3333-3333-3333-333333333333" }],
+    })).rejects.toThrow("producedTargetKind and producedTargetId must be supplied together");
+
+    expect(calls).toHaveLength(0);
+  });
+
+  test("normalizes lifecycle cue fields to migration-safe values", () => {
+    expect(normalizeLifecycleCueType("tool")).toBe("tool");
+    expect(normalizeLifecycleCueType("unknown-cue")).toBe("goal");
+    expect(normalizeLifecycleCueExtractionMethod("llm")).toBe("llm");
+    expect(normalizeLifecycleCueExtractionMethod("regex")).toBe("manual");
   });
 
   test("allows durable fact creation only with approved segment evidence", () => {
@@ -133,6 +160,41 @@ describe("lifecycle operations", () => {
     expect(calls[1].values).toContain("agentfanout:evt-1");
   });
 
+  test("persists produced target fields for processing-time evidence checks", async () => {
+    const producedTargetId = "33333333-3333-3333-3333-333333333333";
+    const { sql, calls } = makeSqlStub([
+      [{
+        outbox_id: "11111111-1111-1111-1111-111111111111",
+        tenant: "tenant-a",
+        event_id: "evt-produced",
+        event_type: "fact_inserted",
+        source_service: "agentfanout",
+        status: "pending",
+        target_kind: null,
+        target_id: null,
+        attempt_count: 0,
+        received_at: "2026-05-02T00:00:00Z",
+      }],
+    ]);
+
+    await enqueueLifecycleEvent(sql, {
+      tenant: "tenant-a",
+      eventId: "evt-produced",
+      eventType: "fact_inserted",
+      sourceService: "agentfanout",
+      payload: {
+        producedTargetKind: "fact",
+        producedTargetId,
+      },
+      evidenceRefs: [{ segment_id: "44444444-4444-4444-4444-444444444444" }],
+    });
+
+    expect(calls[0].text).toContain("produced_target_kind");
+    expect(calls[0].text).toContain("produced_target_id");
+    expect(calls[0].values).toContain("fact");
+    expect(calls[0].values).toContain(producedTargetId);
+  });
+
   test("lists outbox events without touching native memory tables", async () => {
     const { sql, calls } = makeSqlStub([[]]);
     await listLifecycleEvents(sql, { tenant: "tenant-a", status: "failed" });
@@ -173,7 +235,10 @@ describe("lifecycle operations", () => {
 
     expect(result.inserted).toBe(1);
     expect(calls[0].text).toContain("FROM preserve.memory");
-    expect(calls[0].text).toContain("memory_id AS target_id");
+    expect(calls[0].text).toContain("m.memory_id AS target_id");
+    expect(calls[0].text).toContain("NOT EXISTS");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text.indexOf("NOT EXISTS")).toBeLessThan(calls[0].text.indexOf("LIMIT"));
     expect(typeof sql.unsafe).toBe("undefined");
   });
 

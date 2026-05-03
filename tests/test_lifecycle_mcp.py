@@ -4,6 +4,7 @@ from mcp.memory_search import (
     context_recall_audit_record,
     lifecycle_event_enqueue,
     lifecycle_event_list,
+    lifecycle_intelligence_backfill,
     memory_lifecycle_feedback_record,
     memory_lifecycle_status_set,
 )
@@ -56,6 +57,19 @@ def test_lifecycle_event_list_reads_outbox_only():
     assert "FROM preserve.lifecycle_outbox" in pool.cursor_obj.executed
     assert "FROM preserve.memory " not in pool.cursor_obj.executed
     assert pool.cursor_obj.params[1] == "failed"
+
+
+def test_lifecycle_intelligence_backfill_filters_existing_targets_before_limit():
+    pool = FakePool([[{"intelligence_id": "55555555-5555-5555-5555-555555555555"}]])
+
+    result = lifecycle_intelligence_backfill(pool, target_kind="memory", limit=10)
+
+    assert result["inserted"] == 1
+    assert "FROM preserve.memory source" in pool.cursor_obj.executed
+    assert "NOT EXISTS" in pool.cursor_obj.executed
+    assert "preserve.lifecycle_target_intelligence" in pool.cursor_obj.executed
+    assert pool.cursor_obj.executed.index("NOT EXISTS") < pool.cursor_obj.executed.index("LIMIT")
+    assert pool.cursor_obj.params == ["default", "memory", 10, "memory", "semantic"]
 
 
 def test_memory_lifecycle_status_set_updates_lifecycle_tables_only():

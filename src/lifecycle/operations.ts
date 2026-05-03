@@ -8,11 +8,15 @@ import {
   feedbackCreatesReview,
 } from "./evidence-boundary";
 import {
+  type LifecycleCueExtractionMethod,
+  type LifecycleCueType,
   type FeedbackSignal,
   type JsonObject,
   type LifecycleEventType,
   type LifecycleStatus,
   type LifecycleTargetKind,
+  isLifecycleCueExtractionMethod,
+  isLifecycleCueType,
   isTargetKind,
 } from "./types";
 
@@ -178,6 +182,14 @@ function cueHash(input: { cueText: string; cueType: string }): string {
   return createHash("sha256")
     .update(`${input.cueType.trim().toLowerCase()}\x1f${input.cueText.trim().toLowerCase()}`)
     .digest("hex");
+}
+
+export function normalizeLifecycleCueType(value: unknown): LifecycleCueType {
+  return typeof value === "string" && isLifecycleCueType(value) ? value : "goal";
+}
+
+export function normalizeLifecycleCueExtractionMethod(value: unknown): LifecycleCueExtractionMethod {
+  return typeof value === "string" && isLifecycleCueExtractionMethod(value) ? value : "manual";
 }
 
 async function ensureTargetIntelligence(
@@ -357,6 +369,13 @@ export async function enqueueLifecycleEvent(
     });
   }
   const producedTargetKind = input.payload?.producedTargetKind;
+  const producedTargetId = input.payload?.producedTargetId;
+  if (
+    (typeof producedTargetKind === "string" && typeof producedTargetId !== "string")
+    || (typeof producedTargetKind !== "string" && typeof producedTargetId === "string")
+  ) {
+    throw new Error("producedTargetKind and producedTargetId must be supplied together.");
+  }
   if (typeof producedTargetKind === "string") {
     if (!isTargetKind(producedTargetKind)) {
       throw new Error(`Invalid producedTargetKind: ${producedTargetKind}`);
@@ -386,7 +405,9 @@ export async function enqueueLifecycleEvent(
       actor_id,
       occurred_at,
       payload,
-      evidence_refs
+      evidence_refs,
+      produced_target_kind,
+      produced_target_id
     )
     VALUES (
       ${tenant},
@@ -405,7 +426,9 @@ export async function enqueueLifecycleEvent(
       ${input.actorId ?? null},
       ${input.occurredAt ?? null},
       ${sql.json(toJson(input.payload ?? {}))},
-      ${sql.json(toJson(input.evidenceRefs ?? []))}
+      ${sql.json(toJson(input.evidenceRefs ?? []))},
+      ${typeof producedTargetKind === "string" ? producedTargetKind : null},
+      ${typeof producedTargetId === "string" ? producedTargetId : null}
     )
     ON CONFLICT (tenant, idempotency_key) DO UPDATE
       SET received_at = preserve.lifecycle_outbox.received_at
@@ -508,7 +531,8 @@ async function processOneLifecycleEvent(sql: postgres.Sql, outboxId: string): Pr
         const cue = typeof rawCue === "string" ? { text: rawCue } : rawCue;
         const cueText = typeof cue?.text === "string" ? cue.text.trim() : "";
         if (!cueText) continue;
-        const cueType = typeof cue?.type === "string" ? cue.type : "goal";
+        const cueType = normalizeLifecycleCueType(cue?.type);
+        const extractionMethod = normalizeLifecycleCueExtractionMethod(cue?.method);
         await tx`
           INSERT INTO preserve.lifecycle_cue (
             tenant,
@@ -528,7 +552,7 @@ async function processOneLifecycleEvent(sql: postgres.Sql, outboxId: string): Pr
             ${cueText},
             ${cueHash({ cueText, cueType })},
             ${cueType},
-            ${typeof cue?.method === "string" ? cue.method : "manual"},
+            ${extractionMethod},
             ${Math.max(0, Math.min(Number(cue?.confidence ?? 0.7), 1))},
             ${sql.json(toJson(cue?.evidence_ref ?? null))}
           )
@@ -804,10 +828,17 @@ export async function backfillLifecycleIntelligence(
   async function insertFromFact(): Promise<void> {
     const rows = await sql`
       WITH candidates AS (
-        SELECT tenant, fact_id AS target_id
-        FROM preserve.fact
-        WHERE tenant = ${tenant}
-        ORDER BY fact_id
+        SELECT f.tenant, f.fact_id AS target_id
+        FROM preserve.fact f
+        WHERE f.tenant = ${tenant}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM preserve.lifecycle_target_intelligence lti
+            WHERE lti.tenant = f.tenant
+              AND lti.target_kind = 'fact'
+              AND lti.target_id = f.fact_id
+          )
+        ORDER BY f.fact_id
         LIMIT ${limit}
       )
       INSERT INTO preserve.lifecycle_target_intelligence (
@@ -824,10 +855,17 @@ export async function backfillLifecycleIntelligence(
   async function insertFromMemory(): Promise<void> {
     const rows = await sql`
       WITH candidates AS (
-        SELECT tenant, memory_id AS target_id
-        FROM preserve.memory
-        WHERE tenant = ${tenant}
-        ORDER BY memory_id
+        SELECT m.tenant, m.memory_id AS target_id
+        FROM preserve.memory m
+        WHERE m.tenant = ${tenant}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM preserve.lifecycle_target_intelligence lti
+            WHERE lti.tenant = m.tenant
+              AND lti.target_kind = 'memory'
+              AND lti.target_id = m.memory_id
+          )
+        ORDER BY m.memory_id
         LIMIT ${limit}
       )
       INSERT INTO preserve.lifecycle_target_intelligence (
@@ -844,10 +882,17 @@ export async function backfillLifecycleIntelligence(
   async function insertFromProcedure(): Promise<void> {
     const rows = await sql`
       WITH candidates AS (
-        SELECT tenant, procedure_id AS target_id
-        FROM preserve.procedure
-        WHERE tenant = ${tenant}
-        ORDER BY procedure_id
+        SELECT p.tenant, p.procedure_id AS target_id
+        FROM preserve.procedure p
+        WHERE p.tenant = ${tenant}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM preserve.lifecycle_target_intelligence lti
+            WHERE lti.tenant = p.tenant
+              AND lti.target_kind = 'procedure'
+              AND lti.target_id = p.procedure_id
+          )
+        ORDER BY p.procedure_id
         LIMIT ${limit}
       )
       INSERT INTO preserve.lifecycle_target_intelligence (
@@ -864,10 +909,17 @@ export async function backfillLifecycleIntelligence(
   async function insertFromEventFrame(): Promise<void> {
     const rows = await sql`
       WITH candidates AS (
-        SELECT tenant, event_frame_id AS target_id
-        FROM preserve.event_frame
-        WHERE tenant = ${tenant}
-        ORDER BY event_frame_id
+        SELECT ef.tenant, ef.event_frame_id AS target_id
+        FROM preserve.event_frame ef
+        WHERE ef.tenant = ${tenant}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM preserve.lifecycle_target_intelligence lti
+            WHERE lti.tenant = ef.tenant
+              AND lti.target_kind = 'event_frame'
+              AND lti.target_id = ef.event_frame_id
+          )
+        ORDER BY ef.event_frame_id
         LIMIT ${limit}
       )
       INSERT INTO preserve.lifecycle_target_intelligence (
@@ -884,10 +936,17 @@ export async function backfillLifecycleIntelligence(
   async function insertFromWorkingMemory(): Promise<void> {
     const rows = await sql`
       WITH candidates AS (
-        SELECT tenant, working_memory_id AS target_id
-        FROM preserve.working_memory
-        WHERE tenant = ${tenant}
-        ORDER BY working_memory_id
+        SELECT wm.tenant, wm.working_memory_id AS target_id
+        FROM preserve.working_memory wm
+        WHERE wm.tenant = ${tenant}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM preserve.lifecycle_target_intelligence lti
+            WHERE lti.tenant = wm.tenant
+              AND lti.target_kind = 'working_memory'
+              AND lti.target_id = wm.working_memory_id
+          )
+        ORDER BY wm.working_memory_id
         LIMIT ${limit}
       )
       INSERT INTO preserve.lifecycle_target_intelligence (

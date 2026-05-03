@@ -3269,10 +3269,17 @@ def lifecycle_intelligence_backfill(
                     cur.execute(
                         f"""
                         WITH candidates AS (
-                            SELECT tenant, {id_column} AS target_id
-                            FROM preserve.{table}
-                            WHERE tenant = %s
-                            ORDER BY {id_column}
+                            SELECT source.tenant, source.{id_column} AS target_id
+                            FROM preserve.{table} source
+                            WHERE source.tenant = %s
+                              AND NOT EXISTS (
+                                SELECT 1
+                                FROM preserve.lifecycle_target_intelligence lti
+                                WHERE lti.tenant = source.tenant
+                                  AND lti.target_kind = %s
+                                  AND lti.target_id = source.{id_column}
+                              )
+                            ORDER BY source.{id_column}
                             LIMIT %s
                         )
                         INSERT INTO preserve.lifecycle_target_intelligence (
@@ -3283,7 +3290,7 @@ def lifecycle_intelligence_backfill(
                         ON CONFLICT (tenant, target_kind, target_id) DO NOTHING
                         RETURNING intelligence_id::text
                         """,
-                        [TENANT, limit, kind, horizon],
+                        [TENANT, kind, limit, kind, horizon],
                     )
                     inserted += len(cur.fetchall())
     except UndefinedTable:
