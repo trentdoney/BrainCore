@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from mcp.memory_search import (
+    TENANT,
     context_recall_audit_record,
     lifecycle_event_enqueue,
     lifecycle_event_list,
@@ -69,7 +70,7 @@ def test_lifecycle_intelligence_backfill_filters_existing_targets_before_limit()
     assert "NOT EXISTS" in pool.cursor_obj.executed
     assert "preserve.lifecycle_target_intelligence" in pool.cursor_obj.executed
     assert pool.cursor_obj.executed.index("NOT EXISTS") < pool.cursor_obj.executed.index("LIMIT")
-    assert pool.cursor_obj.params == ["default", "memory", 10, "memory", "semantic"]
+    assert pool.cursor_obj.params == [TENANT, "memory", 10, "memory", "semantic"]
 
 
 def test_memory_lifecycle_status_set_updates_lifecycle_tables_only():
