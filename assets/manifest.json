@@ -1,72 +1,53 @@
 {
-  "schema_version": 2,
-  "description": "Active BrainCore README, website, and social presentation assets.",
+  "schema_version": 1,
+  "description": "Active BrainCore README and GitHub presentation assets.",
   "assets": [
     {
       "path": "assets/og.jpg",
       "status": "active",
-      "usage": "README hero and website/Open Graph/social link preview",
+      "usage": "README hero block and social preview source",
       "format": "JPEG",
-      "width": 1200,
-      "height": 630,
-      "sha256": "8c297746181edefa84f6f2928ca03744b74f1d1df7d39d49dafbac2453281578",
+      "width": 1600,
+      "height": 841,
+      "sha256": "729e085ac6bae492bb43d5743d3daa1bf645affe8d0d66ff716a797ea8fd177f",
       "visible_claims": [
-        "BrainCore",
-        "Evidence-first memory for AI agents",
-        "PostgreSQL · pgvector · MCP"
-      ],
-      "alt": "BrainCore social preview with a minimal memory lifecycle graph."
+        "v1.1.6",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled"
+      ]
     },
     {
-      "path": "assets/github-social-preview.jpg",
-      "status": "active",
-      "usage": "GitHub repository social preview upload",
-      "format": "JPEG",
-      "width": 1280,
-      "height": 640,
-      "sha256": "f8c8463778d277b221aaa00d8b84c5c74c337bb898a4a680eeea2695227cf402",
-      "visible_claims": [
-        "BrainCore",
-        "Enterprise memory lifecycle for AI agents",
-        "Evidence · recall audit · MCP controls"
-      ],
-      "alt": "BrainCore GitHub social preview with lifecycle memory graph."
-    },
-    {
-      "path": "assets/website-lifecycle.jpg",
+      "path": "assets/architecture.jpg",
       "status": "active",
       "usage": "README architecture section",
       "format": "JPEG",
-      "width": 1200,
-      "height": 630,
-      "sha256": "ec72796ad5e8d32c4afe85fb6c3f1e0579dd1e09102b83222d0a84ca08344d0a",
+      "width": 1600,
+      "height": 921,
+      "sha256": "4e8d5484ed34944ca02b64342c66b6b16d4ddd5b3f7337df0a563639ee292481",
       "visible_claims": [
-        "Memory lifecycle overlay",
-        "Ingest",
-        "Score",
-        "Recall",
-        "Audit",
-        "Control"
-      ],
-      "alt": "BrainCore lifecycle overlay diagram showing ingest, score, recall, audit, and control stages."
+        "v1.1.6",
+        "38-table preserve schema",
+        "17 reference stdio MCP tools"
+      ]
     },
     {
-      "path": "assets/website-recall-audit.jpg",
+      "path": "assets/dashboard.jpg",
       "status": "active",
-      "usage": "README overview image",
+      "usage": "README retrieval pipeline overview",
       "format": "JPEG",
-      "width": 1200,
-      "height": 630,
-      "sha256": "183ae000c24580069d59d04a8947099f7b64e9ec68249bcbad25dab6182d9ddf",
+      "width": 1600,
+      "height": 900,
+      "sha256": "219cc3b6abee7c367439d5e34279d56978df9647e4387d878980c514220fdce9",
       "visible_claims": [
-        "Recall audit + admin control",
-        "Retrieve",
-        "Inject",
-        "Omit",
-        "Feedback",
-        "Suppress / Retire"
-      ],
-      "alt": "BrainCore recall audit and admin control flow."
+        "v1.1.6",
+        "26,966 facts",
+        "38-table preserve schema",
+        "98.52% fact-evidence coverage",
+        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
+        "17 reference stdio MCP tools"
+      ]
     },
     {
       "path": "assets/maintained-by-trent.jpg",
@@ -81,8 +62,7 @@
         "SynapseGrid Labs",
         "Practical AI infrastructure for autonomous agents, memory systems, and automation.",
         "Follow @trentdoney"
-      ],
-      "alt": "Built by Trent Doney for SynapseGrid Labs."
+      ]
     }
   ]
 }

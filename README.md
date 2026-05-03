@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/website-recall-audit.jpg" alt="BrainCore recall audit and lifecycle admin control flow" width="100%" />
+  <img src="assets/dashboard.jpg" alt="BrainCore retrieval pipeline overview" width="100%" />
 </p>
 
 ## Quality Standard
@@ -313,7 +313,7 @@ data sources
 ```
 
 <p align="center">
-  <img src="assets/website-lifecycle.jpg" alt="BrainCore lifecycle overlay diagram — ingest, score, recall, audit, and control stages." width="100%" />
+  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing." width="100%" />
 </p>
 
 ### Trust classes

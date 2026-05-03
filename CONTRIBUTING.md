@@ -22,6 +22,8 @@ what the repo actually ships:
 5. Keep the launch truth surface aligned: `001` through `021`,
    `45-table preserve schema`, `v1.1.6`, and the committed benchmark
    artifacts.
+6. Do not add, replace, regenerate, compress, optimize, or overwrite image
+   assets unless the human owner supplied the final approved asset for this PR.
 
 ## Push quality gate
 
@@ -73,6 +75,8 @@ rather than documenting a workaround.
   `benchmarks/claims-to-evidence.yaml`.
 - The public launch surface must stay dead-link-free.
 - The changelog and benchmark evidence must be updated when launch status changes.
+- Image assets are human-owned release materials. Generated prompts and draft
+  visual instructions must stay out of the public repository.
 
 ## Writing style
 
@@ -88,4 +92,6 @@ rather than documenting a workaround.
 - New claims are backed by evidence files.
 - Sanitization passes.
 - The docs still reflect the repo as shipped.
+- No image binary changed unless the human owner explicitly supplied and
+  approved that final asset.
 - Open PR comments and review threads have been addressed or documented.
