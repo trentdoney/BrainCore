@@ -50,3 +50,27 @@ tools:
   - name: memory-search-visual
     description: search OCR, caption, and layout metadata without exposing raw artifacts
     source: examples/mcp_server/server.py
+  - name: lifecycle-event-enqueue
+    description: enqueue an idempotent trusted-operator lifecycle event
+    source: examples/mcp_server/server.py
+  - name: lifecycle-event-list
+    description: inspect tenant-local lifecycle outbox events
+    source: examples/mcp_server/server.py
+  - name: lifecycle-event-retry
+    description: retry a failed or dead-letter lifecycle event
+    source: examples/mcp_server/server.py
+  - name: lifecycle-intelligence-backfill
+    description: create lifecycle overlay rows for existing tenant-local targets
+    source: examples/mcp_server/server.py
+  - name: lifecycle-stats
+    description: inspect lifecycle outbox and target intelligence counts
+    source: examples/mcp_server/server.py
+  - name: memory-lifecycle-status-set
+    description: set lifecycle overlay status without mutating native memory truth
+    source: examples/mcp_server/server.py
+  - name: memory-lifecycle-feedback-record
+    description: append lifecycle feedback and audit rows without mutating native memory truth
+    source: examples/mcp_server/server.py
+  - name: context-recall-audit-record
+    description: record context recall package metadata for audit review
+    source: examples/mcp_server/server.py
