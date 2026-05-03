@@ -28,10 +28,26 @@ interface SqlCall {
   values: unknown[];
 }
 
+interface SqlFragment {
+  __fragmentText: string;
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return Boolean(value && typeof value === "object" && "__fragmentText" in value);
+}
+
 function makeSqlStub(responses: unknown[][]) {
   const calls: SqlCall[] = [];
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-    calls.push({ text: strings.join("?"), values });
+    const text = strings.reduce((acc, part, index) => {
+      const value = values[index];
+      if (index >= values.length) return acc + part;
+      return acc + part + (isSqlFragment(value) ? value.__fragmentText : "?");
+    }, "");
+    if (values.length === 0 && text.trim() === "DEFAULT") {
+      return { __fragmentText: text };
+    }
+    calls.push({ text, values: values.filter((value) => !isSqlFragment(value)) });
     return Promise.resolve(responses.shift() ?? []);
   }) as any;
   sql.json = (value: unknown) => value;
@@ -170,8 +186,41 @@ describe("lifecycle operations", () => {
     expect(event.outboxId).toBe("11111111-1111-1111-1111-111111111111");
     expect(calls[0].text).toContain("FROM preserve.memory");
     expect(calls[1].text).toContain("INSERT INTO preserve.lifecycle_outbox");
+    expect(calls[1].text).toContain("DEFAULT");
     expect(calls[1].text).toContain("ON CONFLICT (tenant, idempotency_key) DO UPDATE");
     expect(calls[1].values).toContain("agentfanout:evt-1");
+  });
+
+  test("preserves explicit lifecycle event occurrence timestamps", async () => {
+    const occurredAt = "2026-05-03T10:45:00Z";
+    const { sql, calls } = makeSqlStub([
+      [{ "?column?": 1 }],
+      [{
+        outbox_id: "11111111-1111-1111-1111-111111111111",
+        tenant: "tenant-a",
+        event_id: "evt-explicit-time",
+        event_type: "memory_retrieved",
+        source_service: "agentfanout",
+        status: "pending",
+        target_kind: "memory",
+        target_id: "22222222-2222-2222-2222-222222222222",
+        attempt_count: 0,
+        received_at: "2026-05-02T00:00:00Z",
+      }],
+    ]);
+
+    await enqueueLifecycleEvent(sql, {
+      tenant: "tenant-a",
+      eventId: "evt-explicit-time",
+      eventType: "memory_retrieved",
+      sourceService: "agentfanout",
+      targetKind: "memory",
+      targetId: "22222222-2222-2222-2222-222222222222",
+      occurredAt,
+    });
+
+    expect(calls[1].text).not.toContain("DEFAULT");
+    expect(calls[1].values).toContain(occurredAt);
   });
 
   test("persists produced target fields for processing-time evidence checks", async () => {
