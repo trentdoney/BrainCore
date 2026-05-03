@@ -174,6 +174,10 @@ def _lifecycle_procedure_visible_sql(alias: str = "p") -> str:
     return _lifecycle_visible_sql(alias, "procedure", "procedure_id")
 
 
+def _is_lifecycle_intelligence_missing(exc: UndefinedTable) -> bool:
+    return "lifecycle_target_intelligence" in str(exc)
+
+
 def _filter_lifecycle_hidden(
     pool: ConnectionPool,
     merged: dict[str, "_ScoredCandidate"],
@@ -2321,108 +2325,116 @@ def memory_search_procedure(
     tenant_sql, tenant_params = _tenant_clause(TENANT, "p.")
     pattern = f"%{query}%"
 
-    if EMBEDDING_INDEX_RETRIEVAL_ENABLED:
-        embedding = embed_query(query)
-        emb_str = _vec_literal(embedding)
-        sql = f"""
-            WITH matches AS (
+    def build_query(include_lifecycle_filter: bool) -> tuple[str, list]:
+        lifecycle_sql = _lifecycle_procedure_visible_sql("p") if include_lifecycle_filter else ""
+        if EMBEDDING_INDEX_RETRIEVAL_ENABLED:
+            embedding = embed_query(query)
+            emb_str = _vec_literal(embedding)
+            sql = f"""
+                WITH matches AS (
+                    SELECT
+                        p.procedure_id,
+                        1 - (ei.embedding <=> %s::vector) AS rank
+                    FROM preserve.embedding_index ei
+                    JOIN preserve.procedure p
+                      ON p.tenant = ei.tenant
+                     AND p.procedure_id = ei.procedure_id
+                    WHERE ei.tenant = %s
+                      AND ei.vector_role = 'procedure'
+                      AND ei.target_kind = 'procedure'
+                      {tenant_sql}
+                      {scope_sql}
+                      AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                      {lifecycle_sql}
+                    ORDER BY ei.embedding <=> %s::vector, p.confidence DESC, p.updated_at DESC
+                    LIMIT %s
+                )
                 SELECT
-                    p.procedure_id,
-                    1 - (ei.embedding <=> %s::vector) AS rank
-                FROM preserve.embedding_index ei
+                    p.procedure_id::text,
+                    p.title,
+                    p.summary,
+                    p.confidence::float,
+                    p.scope_path,
+                    p.source_fact_id::text,
+                    ps.procedure_step_id::text,
+                    ps.step_index,
+                    ps.action,
+                    ps.expected_result
+                FROM matches
                 JOIN preserve.procedure p
-                  ON p.tenant = ei.tenant
-                 AND p.procedure_id = ei.procedure_id
-                WHERE ei.tenant = %s
-                  AND ei.vector_role = 'procedure'
-                  AND ei.target_kind = 'procedure'
-                  {tenant_sql}
-                  {scope_sql}
-                  AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
-                  {_lifecycle_procedure_visible_sql("p")}
-                ORDER BY ei.embedding <=> %s::vector, p.confidence DESC, p.updated_at DESC
-                LIMIT %s
+                  ON p.procedure_id = matches.procedure_id
+                 AND p.tenant = %s
+                LEFT JOIN preserve.procedure_step ps
+                  ON ps.procedure_id = p.procedure_id
+                 AND ps.tenant = %s
+                ORDER BY matches.rank DESC, p.confidence DESC, p.title ASC, ps.step_index ASC NULLS LAST
+            """
+            params = (
+                [emb_str, TENANT]
+                + tenant_params
+                + scope_params
+                + [emb_str, limit, TENANT, TENANT]
             )
-            SELECT
-                p.procedure_id::text,
-                p.title,
-                p.summary,
-                p.confidence::float,
-                p.scope_path,
-                p.source_fact_id::text,
-                ps.procedure_step_id::text,
-                ps.step_index,
-                ps.action,
-                ps.expected_result
-            FROM matches
-            JOIN preserve.procedure p
-              ON p.procedure_id = matches.procedure_id
-             AND p.tenant = %s
-            LEFT JOIN preserve.procedure_step ps
-              ON ps.procedure_id = p.procedure_id
-             AND ps.tenant = %s
-            ORDER BY matches.rank DESC, p.confidence DESC, p.title ASC, ps.step_index ASC NULLS LAST
-        """
-        params = (
-            [emb_str, TENANT]
-            + tenant_params
-            + scope_params
-            + [emb_str, limit, TENANT, TENANT]
-        )
-    else:
+            return sql, params
+
         sql = f"""
-            WITH matches AS (
+                WITH matches AS (
+                    SELECT
+                        p.procedure_id,
+                        ts_rank(p.fts, plainto_tsquery('english', %s)) AS rank
+                    FROM preserve.procedure p
+                    WHERE TRUE
+                      {tenant_sql}
+                      {scope_sql}
+                      AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                      {lifecycle_sql}
+                      AND (
+                        p.fts @@ plainto_tsquery('english', %s)
+                        OR p.title ILIKE %s
+                        OR p.summary ILIKE %s
+                      )
+                    ORDER BY rank DESC, p.confidence DESC, p.updated_at DESC
+                    LIMIT %s
+                )
                 SELECT
-                    p.procedure_id,
-                    ts_rank(p.fts, plainto_tsquery('english', %s)) AS rank
-                FROM preserve.procedure p
-                WHERE TRUE
-                  {tenant_sql}
-                  {scope_sql}
-                  AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
-                  {_lifecycle_procedure_visible_sql("p")}
-                  AND (
-                    p.fts @@ plainto_tsquery('english', %s)
-                    OR p.title ILIKE %s
-                    OR p.summary ILIKE %s
-                  )
-                ORDER BY rank DESC, p.confidence DESC, p.updated_at DESC
-                LIMIT %s
-            )
-            SELECT
-                p.procedure_id::text,
-                p.title,
-                p.summary,
-                p.confidence::float,
-                p.scope_path,
-                p.source_fact_id::text,
-                ps.procedure_step_id::text,
-                ps.step_index,
-                ps.action,
-                ps.expected_result
-            FROM matches
-            JOIN preserve.procedure p
-              ON p.procedure_id = matches.procedure_id
-             AND p.tenant = %s
-            LEFT JOIN preserve.procedure_step ps
-              ON ps.procedure_id = p.procedure_id
-             AND ps.tenant = %s
-            ORDER BY matches.rank DESC, p.confidence DESC, p.title ASC, ps.step_index ASC NULLS LAST
-        """
+                    p.procedure_id::text,
+                    p.title,
+                    p.summary,
+                    p.confidence::float,
+                    p.scope_path,
+                    p.source_fact_id::text,
+                    ps.procedure_step_id::text,
+                    ps.step_index,
+                    ps.action,
+                    ps.expected_result
+                FROM matches
+                JOIN preserve.procedure p
+                  ON p.procedure_id = matches.procedure_id
+                 AND p.tenant = %s
+                LEFT JOIN preserve.procedure_step ps
+                  ON ps.procedure_id = p.procedure_id
+                 AND ps.tenant = %s
+                ORDER BY matches.rank DESC, p.confidence DESC, p.title ASC, ps.step_index ASC NULLS LAST
+            """
         params = (
             [query]
             + tenant_params
             + scope_params
             + [query, pattern, pattern, limit, TENANT, TENANT]
         )
+        return sql, params
 
-    try:
+    def execute(include_lifecycle_filter: bool) -> list[dict]:
+        sql, params = build_query(include_lifecycle_filter)
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, params)
-                rows = cur.fetchall()
-    except UndefinedTable:
-        rows = []
+                return cur.fetchall()
+
+    try:
+        rows = execute(include_lifecycle_filter=True)
+    except UndefinedTable as exc:
+        rows = execute(include_lifecycle_filter=False) if _is_lifecycle_intelligence_missing(exc) else []
 
     results_by_id: dict[str, dict] = {}
     for row in rows:
