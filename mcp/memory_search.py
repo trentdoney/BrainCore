@@ -134,6 +134,33 @@ def _target_pair_valid(target_kind: Optional[str], target_id: Optional[str]) -> 
     return (target_kind is None and target_id is None) or (target_kind is not None and target_id is not None)
 
 
+def _has_non_empty_segment_evidence(evidence_refs: Optional[list]) -> bool:
+    for ref in evidence_refs or []:
+        if isinstance(ref, dict) and isinstance(ref.get("segment_id"), str) and ref["segment_id"].strip():
+            return True
+    return False
+
+
+def _payload_value(payload: Optional[dict], camel_name: str, snake_name: str) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get(camel_name, payload.get(snake_name))
+    return value if isinstance(value, str) else None
+
+
+def _assert_lifecycle_event_can_create_target(
+    event_type: str,
+    produced_target_kind: str,
+    evidence_refs: Optional[list],
+) -> None:
+    if produced_target_kind == "working_memory":
+        return
+    if produced_target_kind != "fact":
+        raise ValueError("Lifecycle events cannot directly create durable memories, procedures, or event frames")
+    if event_type not in ("approval_decided", "user_corrected", "fact_inserted") or not _has_non_empty_segment_evidence(evidence_refs):
+        raise ValueError("Lifecycle fact creation requires an approved/corrected/fact_inserted event and a non-empty segment_id evidence ref")
+
+
 def _assert_target_exists(cur, target_kind: str, target_id: str) -> None:
     table_by_kind = {
         "fact": ("fact", "fact_id"),
@@ -2479,72 +2506,80 @@ def memory_next_step(
     scope_sql, scope_params = _scope_clause(scope, "p.")
     tenant_sql, tenant_params = _tenant_clause(TENANT, "p.")
     pattern = f"%{query}%"
-    sql = f"""
-        WITH matches AS (
+    def build_query(include_lifecycle_filter: bool) -> tuple[str, list]:
+        lifecycle_sql = _lifecycle_procedure_visible_sql("p") if include_lifecycle_filter else ""
+        sql = f"""
+            WITH matches AS (
+                SELECT
+                    p.procedure_id,
+                    ts_rank(p.fts, plainto_tsquery('english', %s)) AS rank
+                FROM preserve.procedure p
+                WHERE TRUE
+                  {tenant_sql}
+                  {scope_sql}
+                  AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                  {lifecycle_sql}
+                  AND (
+                    p.fts @@ plainto_tsquery('english', %s)
+                    OR p.title ILIKE %s
+                    OR p.summary ILIKE %s
+                  )
+                ORDER BY rank DESC, p.confidence DESC, p.updated_at DESC
+                LIMIT %s
+            )
             SELECT
-                p.procedure_id,
-                ts_rank(p.fts, plainto_tsquery('english', %s)) AS rank
-            FROM preserve.procedure p
-            WHERE TRUE
-              {tenant_sql}
-              {scope_sql}
-              AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
-              {_lifecycle_procedure_visible_sql("p")}
-              AND (
-                p.fts @@ plainto_tsquery('english', %s)
-                OR p.title ILIKE %s
-                OR p.summary ILIKE %s
-              )
-            ORDER BY rank DESC, p.confidence DESC, p.updated_at DESC
+                p.procedure_id::text,
+                p.title AS procedure_title,
+                p.summary AS procedure_summary,
+                p.scope_path,
+                p.source_fact_id::text AS procedure_source_fact_id,
+                p.evidence_segment_id::text AS procedure_evidence_segment_id,
+                ep.outcome AS episode_outcome,
+                ps.procedure_step_id::text AS step_id,
+                ps.step_index,
+                ps.action,
+                ps.expected_result,
+                ps.source_fact_id::text AS step_source_fact_id,
+                ps.evidence_segment_id::text AS step_evidence_segment_id,
+                ps.confidence::float
+            FROM matches
+            JOIN preserve.procedure p
+              ON p.procedure_id = matches.procedure_id
+             AND p.tenant = %s
+            LEFT JOIN preserve.episode ep
+              ON ep.episode_id = p.source_episode_id
+             AND ep.tenant = %s
+            JOIN LATERAL (
+                SELECT *
+                FROM preserve.procedure_step ps
+                WHERE ps.tenant = %s
+                  AND ps.procedure_id = p.procedure_id
+                  AND ps.step_index > %s
+                ORDER BY ps.step_index ASC
+                LIMIT 1
+            ) ps ON TRUE
+            ORDER BY matches.rank DESC, p.confidence DESC, ps.step_index ASC
             LIMIT %s
+        """
+        params = (
+            [query]
+            + tenant_params
+            + scope_params
+            + [query, pattern, pattern, limit, TENANT, TENANT, TENANT, completed_steps, limit]
         )
-        SELECT
-            p.procedure_id::text,
-            p.title AS procedure_title,
-            p.summary AS procedure_summary,
-            p.scope_path,
-            p.source_fact_id::text AS procedure_source_fact_id,
-            p.evidence_segment_id::text AS procedure_evidence_segment_id,
-            ep.outcome AS episode_outcome,
-            ps.procedure_step_id::text AS step_id,
-            ps.step_index,
-            ps.action,
-            ps.expected_result,
-            ps.source_fact_id::text AS step_source_fact_id,
-            ps.evidence_segment_id::text AS step_evidence_segment_id,
-            ps.confidence::float
-        FROM matches
-        JOIN preserve.procedure p
-          ON p.procedure_id = matches.procedure_id
-         AND p.tenant = %s
-        LEFT JOIN preserve.episode ep
-          ON ep.episode_id = p.source_episode_id
-         AND ep.tenant = %s
-        JOIN LATERAL (
-            SELECT *
-            FROM preserve.procedure_step ps
-            WHERE ps.tenant = %s
-              AND ps.procedure_id = p.procedure_id
-              AND ps.step_index > %s
-            ORDER BY ps.step_index ASC
-            LIMIT 1
-        ) ps ON TRUE
-        ORDER BY matches.rank DESC, p.confidence DESC, ps.step_index ASC
-        LIMIT %s
-    """
-    params = (
-        [query]
-        + tenant_params
-        + scope_params
-        + [query, pattern, pattern, limit, TENANT, TENANT, TENANT, completed_steps, limit]
-    )
-    try:
+        return sql, params
+
+    def execute(include_lifecycle_filter: bool) -> list[dict]:
+        sql, params = build_query(include_lifecycle_filter)
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, params)
-                rows = cur.fetchall()
-    except UndefinedTable:
-        rows = []
+                return cur.fetchall()
+
+    try:
+        rows = execute(include_lifecycle_filter=True)
+    except UndefinedTable as exc:
+        rows = execute(include_lifecycle_filter=False) if _is_lifecycle_intelligence_missing(exc) else []
     return {
         "query": query,
         "results": [_procedure_operational_step_from_row(row) for row in rows],
@@ -2596,60 +2631,68 @@ def _memory_procedure_steps(
           )
         """
         failed_params = [FAILED_REMEDIATION_PATTERN] * 4
-    sql = f"""
-        SELECT
-            p.procedure_id::text,
-            p.title AS procedure_title,
-            p.summary AS procedure_summary,
-            p.scope_path,
-            p.source_fact_id::text AS procedure_source_fact_id,
-            p.evidence_segment_id::text AS procedure_evidence_segment_id,
-            ep.outcome AS episode_outcome,
-            ps.procedure_step_id::text AS step_id,
-            ps.step_index,
-            ps.action,
-            ps.expected_result,
-            ps.source_fact_id::text AS step_source_fact_id,
-            ps.evidence_segment_id::text AS step_evidence_segment_id,
-            ps.confidence::float
-        FROM preserve.procedure p
-        JOIN preserve.procedure_step ps
-          ON ps.procedure_id = p.procedure_id
-         AND ps.tenant = %s
-        LEFT JOIN preserve.episode ep
-          ON ep.episode_id = p.source_episode_id
-         AND ep.tenant = %s
-        WHERE TRUE
-          {tenant_sql}
-          {scope_sql}
-          AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
-          {_lifecycle_procedure_visible_sql("p")}
-          AND (
-            p.fts @@ plainto_tsquery('english', %s)
-            OR p.title ILIKE %s
-            OR p.summary ILIKE %s
-            OR ps.action ILIKE %s
-            OR ps.expected_result ILIKE %s
-          )
-          {failed_sql}
-        ORDER BY p.updated_at DESC, p.confidence DESC, ps.step_index ASC
-        LIMIT %s
-    """
-    params = (
-        [TENANT, TENANT]
-        + tenant_params
-        + scope_params
-        + [query, pattern, pattern, pattern, pattern]
-        + failed_params
-        + [limit]
-    )
-    try:
+    def build_query(include_lifecycle_filter: bool) -> tuple[str, list]:
+        lifecycle_sql = _lifecycle_procedure_visible_sql("p") if include_lifecycle_filter else ""
+        sql = f"""
+            SELECT
+                p.procedure_id::text,
+                p.title AS procedure_title,
+                p.summary AS procedure_summary,
+                p.scope_path,
+                p.source_fact_id::text AS procedure_source_fact_id,
+                p.evidence_segment_id::text AS procedure_evidence_segment_id,
+                ep.outcome AS episode_outcome,
+                ps.procedure_step_id::text AS step_id,
+                ps.step_index,
+                ps.action,
+                ps.expected_result,
+                ps.source_fact_id::text AS step_source_fact_id,
+                ps.evidence_segment_id::text AS step_evidence_segment_id,
+                ps.confidence::float
+            FROM preserve.procedure p
+            JOIN preserve.procedure_step ps
+              ON ps.procedure_id = p.procedure_id
+             AND ps.tenant = %s
+            LEFT JOIN preserve.episode ep
+              ON ep.episode_id = p.source_episode_id
+             AND ep.tenant = %s
+            WHERE TRUE
+              {tenant_sql}
+              {scope_sql}
+              AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+              {lifecycle_sql}
+              AND (
+                p.fts @@ plainto_tsquery('english', %s)
+                OR p.title ILIKE %s
+                OR p.summary ILIKE %s
+                OR ps.action ILIKE %s
+                OR ps.expected_result ILIKE %s
+              )
+              {failed_sql}
+            ORDER BY p.updated_at DESC, p.confidence DESC, ps.step_index ASC
+            LIMIT %s
+        """
+        params = (
+            [TENANT, TENANT]
+            + tenant_params
+            + scope_params
+            + [query, pattern, pattern, pattern, pattern]
+            + failed_params
+            + [limit]
+        )
+        return sql, params
+
+    def execute(include_lifecycle_filter: bool) -> list[dict]:
+        sql, params = build_query(include_lifecycle_filter)
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, params)
-                rows = cur.fetchall()
-    except UndefinedTable:
-        rows = []
+                return cur.fetchall()
+
+    try:
+        rows = execute(include_lifecycle_filter=True)
+    except UndefinedTable as exc:
+        rows = execute(include_lifecycle_filter=False) if _is_lifecycle_intelligence_missing(exc) else []
     return {
         "query": query,
         "results": [_procedure_operational_step_from_row(row) for row in rows],
@@ -3120,6 +3163,19 @@ def lifecycle_event_enqueue(
     _require_choice(target_kind, LIFECYCLE_TARGET_KINDS, "target_kind")
     if not _target_pair_valid(target_kind, target_id):
         raise ValueError("target_kind and target_id must be supplied together")
+    produced_target_kind = _payload_value(payload, "producedTargetKind", "produced_target_kind")
+    produced_target_id = _payload_value(payload, "producedTargetId", "produced_target_id")
+    if not _target_pair_valid(produced_target_kind, produced_target_id):
+        raise ValueError("producedTargetKind and producedTargetId must be supplied together")
+    _require_choice(produced_target_kind, LIFECYCLE_TARGET_KINDS, "producedTargetKind")
+    if produced_target_kind is not None:
+        _assert_lifecycle_event_can_create_target(event_type, produced_target_kind, evidence_refs)
+    has_native_target = bool(target_kind and target_id)
+    has_produced_target = bool(produced_target_kind and produced_target_id)
+    if not has_native_target and not has_produced_target and event_type in ("fact_inserted", "memory_written"):
+        if not _has_non_empty_segment_evidence(evidence_refs):
+            raise ValueError(f"{event_type} lifecycle event requires target and segment evidence")
+        raise ValueError(f"{event_type} lifecycle event requires target or produced target linkage")
     idempotency_key = f"{source_service}:{event_id}"
     sql = """
         INSERT INTO preserve.lifecycle_outbox (
@@ -3133,11 +3189,14 @@ def lifecycle_event_enqueue(
             trace_id,
             target_kind,
             target_id,
+            produced_target_kind,
+            produced_target_id,
             payload,
             evidence_refs
         )
         VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s,
             %s::jsonb,
             %s::jsonb
         )
@@ -3171,6 +3230,8 @@ def lifecycle_event_enqueue(
                     trace_id,
                     target_kind,
                     target_id,
+                    produced_target_kind,
+                    produced_target_id,
                     json.dumps(payload or {}),
                     json.dumps(evidence_refs or []),
                 ])

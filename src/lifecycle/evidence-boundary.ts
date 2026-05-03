@@ -46,15 +46,21 @@ export function assertLifecycleEventCanCreateTarget(input: {
     );
   }
 
-  const hasSegmentEvidence = (input.evidenceRefs ?? []).some((ref) => {
-    return Boolean(ref && typeof ref === "object" && "segment_id" in ref);
-  });
+  const hasSegmentEvidence = hasNonEmptySegmentEvidence(input.evidenceRefs ?? []);
 
   if (!DURABLE_FACT_EVENT_TYPES.has(input.eventType) || !hasSegmentEvidence) {
     throw new EvidenceBoundaryError(
       "Lifecycle fact creation requires an approved/corrected/fact_inserted event and an existing segment_id evidence ref.",
     );
   }
+}
+
+export function hasNonEmptySegmentEvidence(evidenceRefs: unknown[]): boolean {
+  return evidenceRefs.some((ref) => {
+    if (!ref || typeof ref !== "object" || !("segment_id" in ref)) return false;
+    const segmentId = (ref as { segment_id?: unknown }).segment_id;
+    return typeof segmentId === "string" && segmentId.trim().length > 0;
+  });
 }
 
 export function assertAdminStatusMutationAllowed(input: {

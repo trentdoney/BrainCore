@@ -117,6 +117,20 @@ describe("lifecycle evidence boundary", () => {
     })).toThrow(EvidenceBoundaryError);
   });
 
+  test("rejects empty segment ids as missing lifecycle evidence", () => {
+    expect(() => assertLifecycleEventCanCreateTarget({
+      eventType: "fact_inserted",
+      targetKind: "fact",
+      evidenceRefs: [{ segment_id: "" }],
+    })).toThrow(EvidenceBoundaryError);
+
+    expect(() => assertLifecycleEventCanCreateTarget({
+      eventType: "fact_inserted",
+      targetKind: "fact",
+      evidenceRefs: [{ segment_id: "   " }],
+    })).toThrow(EvidenceBoundaryError);
+  });
+
   test("blocks admin requests that try to change native rows", () => {
     expect(() => assertAdminStatusMutationAllowed({
       targetKind: "fact",
@@ -193,6 +207,20 @@ describe("lifecycle operations", () => {
     expect(calls[0].text).toContain("produced_target_id");
     expect(calls[0].values).toContain("fact");
     expect(calls[0].values).toContain(producedTargetId);
+  });
+
+  test("rejects creation events without native or produced target linkage", async () => {
+    const { sql, calls } = makeSqlStub([]);
+
+    await expect(enqueueLifecycleEvent(sql, {
+      tenant: "tenant-a",
+      eventId: "evt-untargeted",
+      eventType: "fact_inserted",
+      sourceService: "agentfanout",
+      evidenceRefs: [{ segment_id: "44444444-4444-4444-4444-444444444444" }],
+    })).rejects.toThrow("fact_inserted lifecycle event requires target or produced target linkage");
+
+    expect(calls).toHaveLength(0);
   });
 
   test("lists outbox events without touching native memory tables", async () => {

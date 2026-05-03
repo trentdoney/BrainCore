@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { config } from "../config";
+import { isMissingLifecycleIntelligenceTable, lifecycleProcedureVisibleSql } from "./lifecycle-filter";
 
 export interface ProcedureSearchOptions {
   tenant?: string;
@@ -31,7 +32,7 @@ export async function searchProcedures(
   const query = options.query.trim();
   if (!query) return [];
 
-  const rows = await sql`
+  const run = async (includeLifecycleFilter: boolean) => await sql`
     WITH matches AS (
       SELECT
         p.procedure_id,
@@ -44,14 +45,7 @@ export async function searchProcedures(
       FROM preserve.procedure p
       WHERE p.tenant = ${tenant}
         AND p.lifecycle_state != 'retired'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM preserve.lifecycle_target_intelligence lti
-          WHERE lti.tenant = p.tenant
-            AND lti.target_kind = 'procedure'
-            AND lti.target_id = p.procedure_id
-            AND lti.lifecycle_status IN ('suppressed', 'retired')
-        )
+        ${lifecycleProcedureVisibleSql(sql, includeLifecycleFilter)}
         AND p.fts @@ plainto_tsquery('english', ${query})
         AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       ORDER BY rank DESC, p.updated_at DESC
@@ -82,6 +76,14 @@ export async function searchProcedures(
     GROUP BY m.procedure_id, m.title, m.summary, m.confidence, m.scope_path, m.source_fact_id, m.rank
     ORDER BY m.rank DESC, m.title
   `;
+
+  let rows;
+  try {
+    rows = await run(true);
+  } catch (error) {
+    if (!isMissingLifecycleIntelligenceTable(error)) throw error;
+    rows = await run(false);
+  }
 
   return rows.map((row: any) => ({
     procedureId: row.procedure_id,

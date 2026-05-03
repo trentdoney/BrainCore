@@ -6,6 +6,7 @@ import {
   assertFeedbackMutationAllowed,
   assertLifecycleEventCanCreateTarget,
   feedbackCreatesReview,
+  hasNonEmptySegmentEvidence,
 } from "./evidence-boundary";
 import {
   type LifecycleCueExtractionMethod,
@@ -155,12 +156,6 @@ export class LifecycleTargetNotFoundError extends Error {
     super(`Lifecycle target not found: ${targetKind}:${targetId}`);
     this.name = "LifecycleTargetNotFoundError";
   }
-}
-
-function hasSegmentEvidence(evidenceRefs: unknown[]): boolean {
-  return evidenceRefs.some((ref) => {
-    return Boolean(ref && typeof ref === "object" && "segment_id" in ref);
-  });
 }
 
 function toLifecycleEvent(row: LifecycleEventDbRow): LifecycleEventRow {
@@ -386,6 +381,14 @@ export async function enqueueLifecycleEvent(
       evidenceRefs: input.evidenceRefs,
     });
   }
+  const hasProducedTarget = typeof producedTargetKind === "string" && typeof producedTargetId === "string";
+  const hasNativeTarget = Boolean(input.targetKind && input.targetId);
+  if (!hasNativeTarget && !hasProducedTarget && (input.eventType === "fact_inserted" || input.eventType === "memory_written")) {
+    if (!hasNonEmptySegmentEvidence(input.evidenceRefs ?? [])) {
+      throw new Error(`${input.eventType} lifecycle event requires target and segment evidence.`);
+    }
+    throw new Error(`${input.eventType} lifecycle event requires target or produced target linkage.`);
+  }
   const idempotencyKey = input.idempotencyKey ?? `${input.sourceService}:${input.eventId}`;
   const rows = await sql`
     INSERT INTO preserve.lifecycle_outbox (
@@ -505,7 +508,9 @@ async function processOneLifecycleEvent(sql: postgres.Sql, outboxId: string): Pr
     if (!event || event.status !== "processing") return;
     const evidenceRefs = Array.isArray(event.evidence_refs) ? event.evidence_refs : [];
 
-    if (event.produced_target_kind && event.produced_target_id) {
+    const hasProducedTarget = Boolean(event.produced_target_kind && event.produced_target_id);
+
+    if (hasProducedTarget) {
       assertLifecycleEventCanCreateTarget({
         eventType: event.event_type,
         targetKind: event.produced_target_kind,
@@ -573,10 +578,11 @@ async function processOneLifecycleEvent(sql: postgres.Sql, outboxId: string): Pr
         afterState: intelligence,
         details: { event_type: event.event_type, source_service: event.source_service },
       });
-    } else if (event.event_type === "fact_inserted" || event.event_type === "memory_written") {
-      if (!hasSegmentEvidence(evidenceRefs)) {
+    } else if (!hasProducedTarget && (event.event_type === "fact_inserted" || event.event_type === "memory_written")) {
+      if (!hasNonEmptySegmentEvidence(evidenceRefs)) {
         throw new Error(`${event.event_type} lifecycle event requires target and segment evidence.`);
       }
+      throw new Error(`${event.event_type} lifecycle event requires target or produced target linkage.`);
     } else {
       await writeAudit(tx, {
         tenant: event.tenant,

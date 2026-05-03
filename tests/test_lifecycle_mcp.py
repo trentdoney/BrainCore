@@ -49,6 +49,90 @@ def test_lifecycle_event_enqueue_is_idempotent_outbox_write():
     assert pool.cursor_obj.params[2] == "agentfanout:evt-1"
 
 
+def test_lifecycle_event_enqueue_persists_produced_target_fields():
+    produced_target_id = "33333333-3333-3333-3333-333333333333"
+    pool = FakePool([[{**lifecycle_event_row(), "event_id": "evt-produced", "target_kind": None, "target_id": None}]])
+
+    lifecycle_event_enqueue(
+        pool,
+        event_id="evt-produced",
+        event_type="fact_inserted",
+        source_service="agentfanout",
+        payload={
+            "producedTargetKind": "fact",
+            "producedTargetId": produced_target_id,
+        },
+        evidence_refs=[{"segment_id": "44444444-4444-4444-4444-444444444444"}],
+    )
+
+    assert "produced_target_kind" in pool.cursor_obj.executed
+    assert "produced_target_id" in pool.cursor_obj.executed
+    assert "fact" in pool.cursor_obj.params
+    assert produced_target_id in pool.cursor_obj.params
+
+
+def test_lifecycle_event_enqueue_rejects_incomplete_produced_target_pair():
+    pool = FakePool([])
+
+    try:
+        lifecycle_event_enqueue(
+            pool,
+            event_id="evt-produced",
+            event_type="fact_inserted",
+            source_service="agentfanout",
+            payload={"producedTargetKind": "fact"},
+            evidence_refs=[{"segment_id": "44444444-4444-4444-4444-444444444444"}],
+        )
+    except ValueError as exc:
+        assert "producedTargetKind and producedTargetId must be supplied together" in str(exc)
+    else:
+        raise AssertionError("incomplete produced target pair should be rejected")
+
+    assert pool.cursor_obj.executions == []
+
+
+def test_lifecycle_event_enqueue_rejects_empty_segment_evidence_for_fact_creation():
+    pool = FakePool([])
+
+    try:
+        lifecycle_event_enqueue(
+            pool,
+            event_id="evt-produced",
+            event_type="fact_inserted",
+            source_service="agentfanout",
+            payload={
+                "producedTargetKind": "fact",
+                "producedTargetId": "33333333-3333-3333-3333-333333333333",
+            },
+            evidence_refs=[{"segment_id": "   "}],
+        )
+    except ValueError as exc:
+        assert "non-empty segment_id evidence ref" in str(exc)
+    else:
+        raise AssertionError("empty segment evidence should be rejected")
+
+    assert pool.cursor_obj.executions == []
+
+
+def test_lifecycle_event_enqueue_rejects_untargeted_creation_event():
+    pool = FakePool([])
+
+    try:
+        lifecycle_event_enqueue(
+            pool,
+            event_id="evt-untargeted",
+            event_type="fact_inserted",
+            source_service="agentfanout",
+            evidence_refs=[{"segment_id": "44444444-4444-4444-4444-444444444444"}],
+        )
+    except ValueError as exc:
+        assert "requires target or produced target linkage" in str(exc)
+    else:
+        raise AssertionError("untargeted creation event should be rejected")
+
+    assert pool.cursor_obj.executions == []
+
+
 def test_lifecycle_event_list_reads_outbox_only():
     pool = FakePool([[lifecycle_event_row()]])
 
