@@ -390,6 +390,7 @@ export async function enqueueLifecycleEvent(
     throw new Error(`${input.eventType} lifecycle event requires target or produced target linkage.`);
   }
   const idempotencyKey = input.idempotencyKey ?? `${input.sourceService}:${input.eventId}`;
+  const occurredAtValue = input.occurredAt == null ? sql`DEFAULT` : input.occurredAt;
   const rows = await sql`
     INSERT INTO preserve.lifecycle_outbox (
       tenant,
@@ -427,7 +428,7 @@ export async function enqueueLifecycleEvent(
       ${input.targetId ?? null},
       ${input.actorType ?? null},
       ${input.actorId ?? null},
-      ${input.occurredAt ?? null},
+      ${occurredAtValue},
       ${sql.json(toJson(input.payload ?? {}))},
       ${sql.json(toJson(input.evidenceRefs ?? []))},
       ${typeof producedTargetKind === "string" ? producedTargetKind : null},
