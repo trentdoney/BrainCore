@@ -72,15 +72,15 @@
 # Curated subset of incident claims — only claims that appear in the
 # launch README.
 
-- claim: "38-table preserve schema"
+- claim: "45-table preserve schema"
   source: "pg_tables"
   source_type: "sql_query"
   query: "SELECT count(*) FROM pg_tables WHERE schemaname='preserve'"
-  expected: 38
+  expected: 45
   tolerance: 0
   framing: "smoke-regression"
   notes: >
-    Count is 38 after the full 001-020 migration set plus the runtime
+    Count is 45 after the full 001-021 migration set plus the runtime
     migration ledger bootstrap. This row backs the launch README's
     schema-count claim for a fresh clone of the open-source repo. It is
     a source-tree invariant, not a live-production measurement, so it

@@ -26,12 +26,33 @@ interface SqlCall {
   values: unknown[];
 }
 
-function makeSqlStub(responses: unknown[][]) {
+interface SqlFragment {
+  __fragmentText: string;
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return Boolean(value && typeof value === "object" && "__fragmentText" in value);
+}
+
+function makeSqlStub(responses: Array<unknown[] | Error>) {
   const calls: SqlCall[] = [];
   let beginCalled = false;
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-    calls.push({ text: strings.join("?"), values });
-    return Promise.resolve(responses.shift() ?? []);
+    const text = strings.reduce((acc, part, index) => {
+      const value = values[index];
+      if (index >= values.length) return acc + part;
+      return acc + part + (isSqlFragment(value) ? value.__fragmentText : "?");
+    }, "");
+    const nonFragmentValues = values.filter((value) => !isSqlFragment(value));
+    if (
+      nonFragmentValues.length === 0
+      && (text.trim() === "" || text.includes("preserve.lifecycle_target_intelligence"))
+    ) {
+      return { __fragmentText: text };
+    }
+    calls.push({ text, values: nonFragmentValues });
+    const response = responses.shift() ?? [];
+    return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
   }) as any;
   sql.begin = async (fn: (tx: typeof sql) => Promise<void>) => {
     beginCalled = true;
@@ -39,6 +60,12 @@ function makeSqlStub(responses: unknown[][]) {
   };
   sql.json = (value: unknown) => value;
   return { sql, calls, get beginCalled() { return beginCalled; } };
+}
+
+function missingLifecycleTableError() {
+  return Object.assign(new Error('relation "preserve.lifecycle_target_intelligence" does not exist'), {
+    code: "42P01",
+  });
 }
 
 describe("procedure memory consolidation", () => {
@@ -206,10 +233,39 @@ describe("procedure search", () => {
     expect(calls[0].text).toContain("FROM preserve.procedure p");
     expect(calls[0].text).toContain("p.tenant = ?");
     expect(calls[0].text).toContain("p.lifecycle_state != 'retired'");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
     expect(calls[0].text).toContain("ps.tenant = ?");
     expect(calls[0].values).toContain("tenant-a");
     expect(calls[0].values).toContain("restart worker");
     expect(calls[0].values).toContain("project:braincore");
+  });
+
+  test("search retries without lifecycle overlay on pre-lifecycle schemas", async () => {
+    const { sql, calls } = makeSqlStub([
+      missingLifecycleTableError(),
+      [{
+        procedure_id: "77777777-7777-7777-7777-777777777777",
+        title: "Procedure: restart worker",
+        summary: "restart worker safely",
+        confidence: 0.84,
+        scope_path: "project:braincore",
+        source_fact_id: "11111111-1111-1111-1111-111111111111",
+        steps: [{ stepIndex: 1, action: "Restart worker", expectedResult: null }],
+      }],
+    ]);
+
+    const results = await searchProcedures(sql, {
+      tenant: "tenant-a",
+      query: "restart worker",
+      scope: "project:braincore",
+      limit: 10,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[1].text).not.toContain("preserve.lifecycle_target_intelligence");
   });
 
   test("procedure help exits before loading db config", () => {
@@ -273,8 +329,27 @@ describe("procedure operational tools", () => {
     expect(calls[0].text).toContain("JOIN LATERAL");
     expect(calls[0].text).toContain("ps.step_index > ?");
     expect(calls[0].text).toContain("p.tenant = ?");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
     expect(calls[0].values).toContain("tenant-a");
     expect(calls[0].values).toContain(1);
+  });
+
+  test("next-step retries without lifecycle overlay on pre-lifecycle schemas", async () => {
+    const { sql, calls } = makeSqlStub([missingLifecycleTableError(), [row]]);
+
+    const results = await findNextProcedureSteps(sql, {
+      tenant: "tenant-a",
+      query: "restart worker",
+      scope: "project:braincore",
+      completedSteps: 1,
+      limit: 5,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[1].text).not.toContain("preserve.lifecycle_target_intelligence");
   });
 
   test("what-did-we-try returns prior tried steps with outcomes", async () => {
@@ -292,6 +367,24 @@ describe("procedure operational tools", () => {
     expect(calls[0].text).toContain("JOIN preserve.procedure_step ps");
     expect(calls[0].text).toContain("LEFT JOIN preserve.episode ep");
     expect(calls[0].text).toContain("ps.action ILIKE");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
+  });
+
+  test("what-did-we-try retries without lifecycle overlay on pre-lifecycle schemas", async () => {
+    const { sql, calls } = makeSqlStub([missingLifecycleTableError(), [row]]);
+
+    const results = await findTriedProcedureSteps(sql, {
+      tenant: "tenant-a",
+      query: "restart worker",
+      scope: "project:braincore",
+      limit: 5,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[1].text).not.toContain("preserve.lifecycle_target_intelligence");
   });
 
   test("failed-remediations filters for failure outcome signals", async () => {
@@ -307,5 +400,23 @@ describe("procedure operational tools", () => {
     expect(results[0].episodeOutcome).toBe("failed");
     expect(calls[0].text).toContain("lower(COALESCE(ep.outcome, '')) ~");
     expect(calls[0].text).toContain("lower(COALESCE(ps.expected_result, '')) ~");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
+  });
+
+  test("failed-remediations retries without lifecycle overlay on pre-lifecycle schemas", async () => {
+    const { sql, calls } = makeSqlStub([missingLifecycleTableError(), [{ ...row, episode_outcome: "failed" }]]);
+
+    const results = await findFailedRemediationSteps(sql, {
+      tenant: "tenant-a",
+      query: "restart worker",
+      scope: "project:braincore",
+      limit: 5,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[1].text).not.toContain("preserve.lifecycle_target_intelligence");
   });
 });

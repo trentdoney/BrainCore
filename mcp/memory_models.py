@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,7 @@ MemoryObjectType = Literal[
     "procedure",
     "media_artifact",
     "visual_region",
+    "working_memory",
 ]
 
 
@@ -371,6 +372,98 @@ class WorkingMemoryListResponse(BaseModel):
 class WorkingMemoryCleanupResponse(BaseModel):
     expired: int
     query_time_ms: float
+
+
+# ---------------------------------------------------------------------------
+# Enterprise lifecycle/admin endpoint
+# ---------------------------------------------------------------------------
+
+LifecycleTargetType = Literal["fact", "memory", "procedure", "event_frame", "working_memory"]
+
+
+class LifecycleEventItem(BaseModel):
+    outbox_id: str
+    tenant: str
+    event_id: str
+    event_type: str
+    source_service: str
+    status: str
+    target_kind: Optional[str] = None
+    target_id: Optional[str] = None
+    attempt_count: int
+    received_at: str
+
+
+class LifecycleEventResponse(BaseModel):
+    event: Optional[LifecycleEventItem] = None
+    query_time_ms: float
+
+
+class LifecycleEventListResponse(BaseModel):
+    events: list[LifecycleEventItem] = Field(default_factory=list)
+    query_time_ms: float
+
+
+class LifecycleRetryResponse(BaseModel):
+    retried: bool
+    query_time_ms: float
+
+
+class LifecycleBackfillResponse(BaseModel):
+    inserted: int
+    query_time_ms: float
+
+
+class LifecycleStatsResponse(BaseModel):
+    tenant: str
+    outbox: dict[str, Any] = Field(default_factory=dict)
+    intelligence: dict[str, Any] = Field(default_factory=dict)
+    query_time_ms: float
+
+
+class LifecycleTargetStatus(BaseModel):
+    target_kind: str
+    target_id: str
+    lifecycle_status: str
+    lock_version: int
+
+
+class LifecycleStatusResponse(BaseModel):
+    target: Optional[LifecycleTargetStatus] = None
+    query_time_ms: float
+
+
+class LifecycleFeedbackItem(BaseModel):
+    feedback_id: str
+
+
+class LifecycleFeedbackResponse(BaseModel):
+    feedback: Optional[LifecycleFeedbackItem] = None
+    query_time_ms: float
+
+
+class ContextRecallAuditItem(BaseModel):
+    context_audit_id: str
+
+
+class ContextRecallAuditResponse(BaseModel):
+    context_audit: Optional[ContextRecallAuditItem] = None
+    query_time_ms: float
+
+
+class ContextRecallAuditRequest(BaseModel):
+    trigger: str
+    mode: Literal["off", "shadow", "eval", "default_on"]
+    max_tokens: int = Field(..., ge=1)
+    injected: bool = False
+    scope: Optional[str] = None
+    session_key: Optional[str] = None
+    goal: Optional[str] = None
+    cues: list[Any] = Field(default_factory=list)
+    retrieved: list[Any] = Field(default_factory=list)
+    prompt_package: list[Any] = Field(default_factory=list)
+    omitted: list[Any] = Field(default_factory=list)
+    total_tokens: int = Field(default=0, ge=0)
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,45 @@ Run the launch checks that matter for the changed area:
 If the upgrade changes benchmark numbers, update the committed JSON
 artifacts and keep the smoke/production framing separate.
 
+## Enterprise lifecycle migration 021
+
+Migration `021_enterprise_lifecycle.sql` is additive. It creates lifecycle
+outbox, intelligence, cue, context recall audit, feedback, score audit, and
+audit log tables without changing BrainCore native truth rows.
+
+Before applying on a live deployment:
+
+1. Confirm `BRAINCORE_POSTGRES_DSN` points at the intended database.
+2. Run `bun src/cli.ts migrate` on a disposable clone of the database first.
+3. Verify `braincore lifecycle stats` returns outbox and intelligence counts.
+4. Backfill intelligence with `braincore lifecycle backfill-intelligence`.
+5. Keep lifecycle status in shadow/admin mode until retrieval suppression tests
+   pass for the deployment corpus.
+
+Rollback policy:
+
+- Development/test rollback may use `sql/down/021_enterprise_lifecycle.down.sql`.
+- Live rollback must export `lifecycle_outbox`, `lifecycle_feedback_event`,
+  `lifecycle_score_audit`, `lifecycle_audit_log`, and
+  `context_recall_audit` first. The down migration drops those tables.
+- Do not run the down migration as an incident response unless audit/outbox data
+  loss is explicitly accepted and documented.
+
+## OpenAOS lifecycle parity map
+
+BrainCore tracks different and additional objects than OpenAOS. The mapping is
+therefore an overlay, not a table-for-table clone.
+
+| OpenAOS lifecycle area | BrainCore target/surface | Status |
+|---|---|---|
+| Mission/session/tool/model events | `lifecycle_outbox.event_type` mission/session/tool/model values | Implemented as idempotent event intake |
+| Memory retrieve/inject/omit feedback | `context_recall_audit` plus `lifecycle_feedback_event` | Implemented for audit and scoring |
+| Memory promotion/suppression/retirement | `lifecycle_target_intelligence.lifecycle_status` | Implemented as overlay, native truth unchanged |
+| Recall cues | `lifecycle_cue` | Implemented as target-bound cue metadata |
+| Score/audit history | `lifecycle_score_audit`, `lifecycle_audit_log` | Implemented append-only |
+| Browser/admin dashboard | Future web app upgrade path | Deferred intentionally |
+| OpenAOS-only runtime internals | `lifecycle_outbox.payload`/`metadata` where useful | Mapped only when BrainCore has an equivalent target |
+
 ## Breaking changes to watch
 
 - schema count changes

@@ -211,7 +211,7 @@ strategy:
 
 ## Schema Walkthrough
 
-The public release ships a 38-table open-source preserve schema.
+The public release ships a 45-table open-source preserve schema.
 
 | Table | Role | Notes |
 |---|---|---|
@@ -253,6 +253,31 @@ The public release ships a 38-table open-source preserve schema.
 | `media_artifact` | media metadata | screenshots, images, pages, video, and documents |
 | `visual_region` | layout regions | bounding boxes linked to grounded objects |
 | `embedding_index` | multi-vector index | embeddings by target kind and vector role |
+| `lifecycle_outbox` | lifecycle event intake | idempotent event queue for memory lifecycle signals |
+| `lifecycle_target_intelligence` | lifecycle overlay | salience, strength, quality, status, and lock version per target |
+| `lifecycle_cue` | recall cue index | cue terms and usefulness scores for target recall |
+| `context_recall_audit` | recall audit | retrieved/injected/omitted context packages and token accounting |
+| `lifecycle_feedback_event` | append-only feedback | recall and admin feedback signals |
+| `lifecycle_score_audit` | append-only score audit | score changes and factors |
+| `lifecycle_audit_log` | append-only lifecycle audit | admin and processor actions |
+
+### Enterprise Memory Lifecycle Overlay
+
+Migration `021_enterprise_lifecycle.sql` adds lifecycle tables as an overlay
+instead of rewriting BrainCore's native truth tables. Admin feedback and status
+changes update lifecycle intelligence, feedback, score audit, and audit log
+rows. They do not directly modify `fact`, `memory`, `procedure`,
+`event_frame`, or `working_memory` truth columns.
+
+Retrieval treats `lifecycle_target_intelligence.lifecycle_status IN
+('suppressed','retired')` as a hard hide overlay for supported target kinds.
+This lets operators suppress bad recall without destroying evidence or changing
+the native assertion lifecycle.
+
+Rollback note: `sql/down/021_enterprise_lifecycle.down.sql` is suitable for
+development and disposable database rollback tests. On a live system, export or
+archive lifecycle outbox, feedback, score audit, and audit log data before
+running the down migration because those tables are intentionally dropped.
 
 ### Why `project_service_map` matters
 
@@ -352,8 +377,9 @@ things for architecture readers:
    `mcp/` directory and the PyPI `mcp` package
 2. keeps the psycopg pool lazy so import-time checks do not require a
    live database
-3. shows the public surface area honestly: retrieval, timeline, procedure,
-   visual, and working-memory tools backed by the shared library
+3. shows the public surface area honestly: read-side retrieval, timeline,
+   procedure, visual, working-memory, and explicit lifecycle admin tools backed
+   by the shared library
 
 It is intentionally not a kitchen-sink server.
 
@@ -363,6 +389,11 @@ rate limits, timeouts, and transport security. The safe default is one
 MCP process per tenant with `BRAINCORE_TENANT` set before import. A
 wrapper should not expose raw artifacts or full segment text unless that
 tool has its own privacy review.
+
+Lifecycle write tools are trusted admin surfaces, not part of a read-only
+public retrieval boundary. Enable event enqueue, status overlay, feedback, and
+context recall audit writes only after the wrapper has authentication,
+authorization, tenant policy, and network binding controls.
 
 ## Nightly Pipeline
 

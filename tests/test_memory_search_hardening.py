@@ -23,6 +23,13 @@ def test_memory_results_attach_supported_fact_evidence():
     assert "JOIN preserve.fact_evidence fe" in SOURCE
 
 
+def test_lifecycle_hidden_statuses_are_filtered_from_search_results():
+    assert "def _filter_lifecycle_hidden(" in SOURCE
+    assert "FROM preserve.lifecycle_target_intelligence" in SOURCE
+    assert "lifecycle_status IN ('suppressed','retired')" in SOURCE
+    assert "_filter_lifecycle_hidden(pool, merged)" in SOURCE
+
+
 def test_graph_stream_is_feature_flagged_and_timeout_bounded():
     assert 'BRAINCORE_GRAPH_RETRIEVAL") == "1"' in SOURCE
     assert "BRAINCORE_GRAPH_STREAM_TIMEOUT_MS" in SOURCE
@@ -101,6 +108,7 @@ def test_procedure_search_reads_procedures_with_tenant_scope():
     assert "ps.tenant = %s" in SOURCE
     assert '_tenant_clause(TENANT, "p.")' in SOURCE
     assert '_scope_clause(scope, "p.")' in SOURCE
+    assert "def _lifecycle_procedure_visible_sql(" in SOURCE
 
 
 def test_visual_search_reads_metadata_without_raw_artifact_paths():

@@ -5,14 +5,24 @@ BrainCore retrieval library. It exposes the reference tools from
 `mcp/memory_search.py`: `memory-search`, `memory-timeline`,
 `memory-before-after`, `memory-causal-chain`, and
 `memory-search-procedure`, plus visual metadata and working-memory
-session tools. It is
+session tools. It also exposes lifecycle admin tools for outbox intake,
+target-status overlays, feedback, stats, retry, and context recall audit. It is
 still intentionally small: one transport, lazy database connection setup,
 and no deployment-specific policy layer.
 
-The working-memory tools can write task-session and ephemeral memory
+The working-memory and lifecycle tools can write task-session, ephemeral
+memory, lifecycle outbox, lifecycle intelligence, feedback, and audit
 rows. Keep this example on stdio or behind a deployment-specific
 authentication and tenant-policy layer; do not expose it as a remote MCP
 service without a separate write-tool review.
+
+> **Admin-only warning**
+>
+> Lifecycle write tools such as `lifecycle-event-enqueue`,
+> `memory-lifecycle-status-set`, `memory-lifecycle-feedback-record`, and
+> `context-recall-audit-record` are trusted operator surfaces. They require
+> authentication, authorization, tenant policy, and network binding controls
+> before use behind any remote transport.
 
 ## Prerequisites
 
@@ -143,6 +153,25 @@ The server also exposes active task-session operations:
   from closed sessions for durable promotion review.
 - `memory-working-cleanup-expired` to mark expired unpromoted items as
   expired without deleting promoted evidence.
+
+### Lifecycle Admin Tools
+
+The server exposes the CLI/MCP-first lifecycle admin surface:
+
+- `lifecycle-event-enqueue` to enqueue idempotent lifecycle events.
+- `lifecycle-event-list` to inspect the outbox.
+- `lifecycle-event-retry` to retry failed or dead-letter events.
+- `lifecycle-intelligence-backfill` to create overlay rows for existing
+  tenant-local targets.
+- `lifecycle-stats` to inspect lifecycle counts.
+- `memory-lifecycle-status-set` to set target lifecycle overlay status.
+- `memory-lifecycle-feedback-record` to append feedback and audit rows.
+- `context-recall-audit-record` to record recall package metadata.
+
+These tools validate target kinds, statuses, event types, target pairing, and
+native target existence before writing. They update lifecycle overlay/audit
+tables only; they do not directly mutate `fact`, `memory`, `procedure`,
+`event_frame`, or `working_memory` truth columns.
 
 ## What this example does NOT include
 

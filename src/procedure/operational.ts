@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { config } from "../config";
+import { isMissingLifecycleIntelligenceTable, lifecycleProcedureVisibleSql } from "./lifecycle-filter";
 
 export interface ProcedureOperationalOptions {
   tenant?: string;
@@ -65,7 +66,7 @@ export async function findNextProcedureSteps(
   const limit = clampLimit(options.limit, 50);
   const pattern = `%${query}%`;
 
-  const rows = await sql`
+  const run = async (includeLifecycleFilter: boolean) => await sql`
     WITH matches AS (
       SELECT
         p.procedure_id,
@@ -73,6 +74,7 @@ export async function findNextProcedureSteps(
       FROM preserve.procedure p
       WHERE p.tenant = ${tenant}
         AND p.lifecycle_state != 'retired'
+        ${lifecycleProcedureVisibleSql(sql, includeLifecycleFilter)}
         AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
         AND (
           p.fts @@ plainto_tsquery('english', ${query})
@@ -117,6 +119,13 @@ export async function findNextProcedureSteps(
     ORDER BY matches.rank DESC, p.confidence DESC, ps.step_index ASC
     LIMIT ${limit}
   `;
+  let rows;
+  try {
+    rows = await run(true);
+  } catch (error) {
+    if (!isMissingLifecycleIntelligenceTable(error)) throw error;
+    rows = await run(false);
+  }
   return rows.map(mapStep);
 }
 
@@ -130,7 +139,7 @@ export async function findTriedProcedureSteps(
   const limit = clampLimit(options.limit, 100);
   const pattern = `%${query}%`;
 
-  const rows = await sql`
+  const run = async (includeLifecycleFilter: boolean) => await sql`
     SELECT
       p.procedure_id::text,
       p.title AS procedure_title,
@@ -155,6 +164,7 @@ export async function findTriedProcedureSteps(
      AND ep.tenant = ${tenant}
     WHERE p.tenant = ${tenant}
       AND p.lifecycle_state != 'retired'
+      ${lifecycleProcedureVisibleSql(sql, includeLifecycleFilter)}
       AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, ps.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       AND (
         p.fts @@ plainto_tsquery('english', ${query})
@@ -166,6 +176,13 @@ export async function findTriedProcedureSteps(
     ORDER BY p.updated_at DESC, p.confidence DESC, ps.step_index ASC
     LIMIT ${limit}
   `;
+  let rows;
+  try {
+    rows = await run(true);
+  } catch (error) {
+    if (!isMissingLifecycleIntelligenceTable(error)) throw error;
+    rows = await run(false);
+  }
   return rows.map(mapStep);
 }
 
@@ -179,7 +196,7 @@ export async function findFailedRemediationSteps(
   const limit = clampLimit(options.limit, 100);
   const pattern = `%${query}%`;
 
-  const rows = await sql`
+  const run = async (includeLifecycleFilter: boolean) => await sql`
     SELECT
       p.procedure_id::text,
       p.title AS procedure_title,
@@ -204,6 +221,7 @@ export async function findFailedRemediationSteps(
      AND ep.tenant = ${tenant}
     WHERE p.tenant = ${tenant}
       AND p.lifecycle_state != 'retired'
+      ${lifecycleProcedureVisibleSql(sql, includeLifecycleFilter)}
       AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, ps.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       AND (
         p.fts @@ plainto_tsquery('english', ${query})
@@ -221,5 +239,12 @@ export async function findFailedRemediationSteps(
     ORDER BY p.updated_at DESC, p.confidence DESC, ps.step_index ASC
     LIMIT ${limit}
   `;
+  let rows;
+  try {
+    rows = await run(true);
+  } catch (error) {
+    if (!isMissingLifecycleIntelligenceTable(error)) throw error;
+    rows = await run(false);
+  }
   return rows.map(mapStep);
 }

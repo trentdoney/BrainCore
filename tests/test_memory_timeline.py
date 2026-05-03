@@ -78,6 +78,29 @@ class RaisingPool:
         return FakeConnection(self.cursor_obj)
 
 
+class RaisingOnceCursor(FakeCursor):
+    def __init__(self, exc, rows):
+        super().__init__(rows)
+        self.exc = exc
+        self.raised = False
+
+    def execute(self, sql, params):
+        self.executed = sql
+        self.params = params
+        self.executions.append((sql, params))
+        if not self.raised:
+            self.raised = True
+            raise self.exc
+
+
+class RaisingOncePool:
+    def __init__(self, exc, rows):
+        self.cursor_obj = RaisingOnceCursor(exc, rows)
+
+    def connection(self):
+        return FakeConnection(self.cursor_obj)
+
+
 def test_memory_timeline_returns_ordered_event_frame_shape():
     rows = [{
         "event_frame_id": "11111111-1111-1111-1111-111111111111",
@@ -451,6 +474,36 @@ def test_memory_search_procedure_embedding_index_missing_returns_empty(monkeypat
     assert "FROM preserve.embedding_index ei" in pool.cursor_obj.executed
 
 
+def test_memory_search_procedure_falls_back_when_lifecycle_overlay_missing(monkeypatch):
+    monkeypatch.setitem(memory_search_procedure.__globals__, "EMBEDDING_INDEX_RETRIEVAL_ENABLED", False)
+    rows = [{
+        "procedure_id": "11111111-1111-1111-1111-111111111111",
+        "title": "Procedure: restart worker",
+        "summary": "restart worker safely",
+        "confidence": 0.84,
+        "scope_path": "project:braincore",
+        "source_fact_id": "22222222-2222-2222-2222-222222222222",
+        "procedure_step_id": "33333333-3333-3333-3333-333333333333",
+        "step_index": 1,
+        "action": "Restart worker",
+        "expected_result": "worker is healthy",
+    }]
+    pool = RaisingOncePool(UndefinedTable("preserve.lifecycle_target_intelligence"), rows)
+
+    result = memory_search_procedure(
+        pool,
+        query="restart worker",
+        scope="project:braincore",
+        limit=5,
+    )
+
+    assert len(result["results"]) == 1
+    first_sql, _first_params = pool.cursor_obj.executions[0]
+    retry_sql, _retry_params = pool.cursor_obj.executions[1]
+    assert "preserve.lifecycle_target_intelligence" in first_sql
+    assert "preserve.lifecycle_target_intelligence" not in retry_sql
+
+
 def procedure_operational_row(outcome="resolved"):
     return {
         "procedure_id": "11111111-1111-1111-1111-111111111111",
@@ -489,6 +542,24 @@ def test_memory_next_step_returns_evidence_and_outcome():
     assert "p.tenant = %s" in pool.cursor_obj.executed
 
 
+def test_memory_next_step_falls_back_when_lifecycle_overlay_missing():
+    pool = RaisingOncePool(UndefinedTable("preserve.lifecycle_target_intelligence"), [procedure_operational_row()])
+
+    result = memory_next_step(
+        pool,
+        query="restart worker",
+        scope="project:braincore",
+        completed_steps=1,
+        limit=5,
+    )
+
+    assert len(result["results"]) == 1
+    first_sql, _first_params = pool.cursor_obj.executions[0]
+    retry_sql, _retry_params = pool.cursor_obj.executions[1]
+    assert "preserve.lifecycle_target_intelligence" in first_sql
+    assert "preserve.lifecycle_target_intelligence" not in retry_sql
+
+
 def test_memory_what_did_we_try_returns_prior_steps():
     pool = FakePool([procedure_operational_row()])
 
@@ -506,6 +577,23 @@ def test_memory_what_did_we_try_returns_prior_steps():
     assert "ps.action ILIKE" in pool.cursor_obj.executed
 
 
+def test_memory_what_did_we_try_falls_back_when_lifecycle_overlay_missing():
+    pool = RaisingOncePool(UndefinedTable("preserve.lifecycle_target_intelligence"), [procedure_operational_row()])
+
+    result = memory_what_did_we_try(
+        pool,
+        query="restart worker",
+        scope="project:braincore",
+        limit=5,
+    )
+
+    assert len(result["results"]) == 1
+    first_sql, _first_params = pool.cursor_obj.executions[0]
+    retry_sql, _retry_params = pool.cursor_obj.executions[1]
+    assert "preserve.lifecycle_target_intelligence" in first_sql
+    assert "preserve.lifecycle_target_intelligence" not in retry_sql
+
+
 def test_memory_failed_remediations_filters_failed_outcomes():
     pool = FakePool([procedure_operational_row(outcome="failed")])
 
@@ -519,3 +607,20 @@ def test_memory_failed_remediations_filters_failed_outcomes():
     assert result["results"][0]["episode_outcome"] == "failed"
     assert "lower(COALESCE(ep.outcome, '')) ~ %s" in pool.cursor_obj.executed
     assert "lower(COALESCE(ps.expected_result, '')) ~ %s" in pool.cursor_obj.executed
+
+
+def test_memory_failed_remediations_falls_back_when_lifecycle_overlay_missing():
+    pool = RaisingOncePool(UndefinedTable("preserve.lifecycle_target_intelligence"), [procedure_operational_row(outcome="failed")])
+
+    result = memory_failed_remediations(
+        pool,
+        query="restart worker",
+        scope="project:braincore",
+        limit=5,
+    )
+
+    assert len(result["results"]) == 1
+    first_sql, _first_params = pool.cursor_obj.executions[0]
+    retry_sql, _retry_params = pool.cursor_obj.executions[1]
+    assert "preserve.lifecycle_target_intelligence" in first_sql
+    assert "preserve.lifecycle_target_intelligence" not in retry_sql

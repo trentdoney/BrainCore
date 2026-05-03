@@ -7,15 +7,39 @@
       "status": "active",
       "usage": "README hero block and social preview source",
       "format": "JPEG",
-      "width": 1600,
-      "height": 841,
-      "sha256": "729e085ac6bae492bb43d5743d3daa1bf645affe8d0d66ff716a797ea8fd177f",
+      "width": 1672,
+      "height": 941,
+      "sha256": "3b88eef1b8df5994e58c7f2e208bcd9d976eeefbb1a31fcf0077e34043c7da3d",
       "visible_claims": [
-        "v1.1.6",
-        "26,966 facts",
-        "38-table preserve schema",
-        "98.52% fact-evidence coverage",
-        "P50 71.6 ms / P95 85.2 ms with vector stream disabled"
+        "BrainCore",
+        "Enterprise memory lifecycle for AI agents",
+        "PostgreSQL + pgvector · CLI/MCP controls",
+        "v1.1.6"
+      ]
+    },
+    {
+      "path": "assets/lifecycle-control-flow.jpg",
+      "status": "active",
+      "usage": "README lifecycle control flow overview",
+      "format": "JPEG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "13f5a1470d382d7658e10b09d58b17f96f61889e0de204483a5f7a11ae2c61e5",
+      "visible_claims": [
+        "Memory Lifecycle Control Flow",
+        "Recall audit, feedback, suppression, and retirement without destroying evidence",
+        "Retrieve",
+        "Inject",
+        "Omit",
+        "Feedback",
+        "Control",
+        "Active",
+        "Suppressed",
+        "Retired",
+        "Native evidence remains unchanged",
+        "Append-only archive",
+        "Source provenance",
+        "Immutable records"
       ]
     },
     {
@@ -23,30 +47,28 @@
       "status": "active",
       "usage": "README architecture section",
       "format": "JPEG",
-      "width": 1600,
-      "height": 921,
-      "sha256": "4e8d5484ed34944ca02b64342c66b6b16d4ddd5b3f7337df0a563639ee292481",
+      "width": 1672,
+      "height": 941,
+      "sha256": "3d9766f0fdc7ac29aea9d7721d2dafb01d98cdc55b99ddec859a31d00862c8d3",
       "visible_claims": [
-        "v1.1.6",
-        "38-table preserve schema",
-        "17 reference stdio MCP tools"
-      ]
-    },
-    {
-      "path": "assets/dashboard.jpg",
-      "status": "active",
-      "usage": "README retrieval pipeline overview",
-      "format": "JPEG",
-      "width": 1600,
-      "height": 900,
-      "sha256": "219cc3b6abee7c367439d5e34279d56978df9647e4387d878980c514220fdce9",
-      "visible_claims": [
-        "v1.1.6",
-        "26,966 facts",
-        "38-table preserve schema",
-        "98.52% fact-evidence coverage",
-        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
-        "17 reference stdio MCP tools"
+        "BrainCore Architecture",
+        "Sources",
+        "Archive",
+        "Extract",
+        "Consolidate",
+        "Retrieve",
+        "Publish",
+        "Hybrid Retrieval",
+        "SQL",
+        "Full-text",
+        "Vector",
+        "Temporal",
+        "Graph path",
+        "Evidence + Audit Guarantees",
+        "Append-only archive",
+        "Trust classes",
+        "Source provenance",
+        "Lifecycle audit trail"
       ]
     },
     {
