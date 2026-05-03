@@ -73,6 +73,14 @@ export async function findNextProcedureSteps(
       FROM preserve.procedure p
       WHERE p.tenant = ${tenant}
         AND p.lifecycle_state != 'retired'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM preserve.lifecycle_target_intelligence lti
+          WHERE lti.tenant = p.tenant
+            AND lti.target_kind = 'procedure'
+            AND lti.target_id = p.procedure_id
+            AND lti.lifecycle_status IN ('suppressed', 'retired')
+        )
         AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
         AND (
           p.fts @@ plainto_tsquery('english', ${query})
@@ -155,6 +163,14 @@ export async function findTriedProcedureSteps(
      AND ep.tenant = ${tenant}
     WHERE p.tenant = ${tenant}
       AND p.lifecycle_state != 'retired'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM preserve.lifecycle_target_intelligence lti
+        WHERE lti.tenant = p.tenant
+          AND lti.target_kind = 'procedure'
+          AND lti.target_id = p.procedure_id
+          AND lti.lifecycle_status IN ('suppressed', 'retired')
+      )
       AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, ps.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       AND (
         p.fts @@ plainto_tsquery('english', ${query})
@@ -204,6 +220,14 @@ export async function findFailedRemediationSteps(
      AND ep.tenant = ${tenant}
     WHERE p.tenant = ${tenant}
       AND p.lifecycle_state != 'retired'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM preserve.lifecycle_target_intelligence lti
+        WHERE lti.tenant = p.tenant
+          AND lti.target_kind = 'procedure'
+          AND lti.target_id = p.procedure_id
+          AND lti.lifecycle_status IN ('suppressed', 'retired')
+      )
       AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, ps.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       AND (
         p.fts @@ plainto_tsquery('english', ${query})

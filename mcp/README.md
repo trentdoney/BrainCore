@@ -4,6 +4,16 @@ Python-based retrieval layer for the BrainCore knowledge graph. Provides
 four core retrieval streams (SQL + FTS + vector + temporal) plus optional
 graph-path retrieval with Reciprocal Rank Fusion.
 
+Lifecycle note: if `preserve.lifecycle_target_intelligence` exists,
+retrieval filters out targets whose lifecycle overlay status is
+`suppressed` or `retired`. This is an admin recall-safety overlay; native
+BrainCore truth rows are not mutated by that filter.
+
+Admin note: write-capable lifecycle tools are exposed for trusted operator
+use only. They are not public unauthenticated endpoints, and any remote wrapper
+must add authentication, authorization, tenant policy, and network binding
+controls before enabling them.
+
 ## Files
 
 - `memory_models.py` — Pydantic request/response models
@@ -44,6 +54,10 @@ Network wrapper contract:
 - Do not expose raw artifacts or full segment text unless that tool has
   a separate privacy review.
 - Use a read-only database role for retrieval wrappers where possible.
+- Use a write-capable role only for explicit working-memory or lifecycle
+  admin tools, and protect those tools behind an authentication/policy layer.
+- Treat lifecycle event enqueue, target-status writes, feedback writes, and
+  context recall audit writes as admin-only operations.
 
 ```python
 from mcp.memory_search import memory_search

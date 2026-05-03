@@ -1,7 +1,7 @@
 {
   "name": "braincore",
   "version": "1.1.6",
-  "description": "Autonomous memory system for AI infrastructure — extracts, preserves, and retrieves operational knowledge from incidents, sessions, and monitoring data",
+  "description": "Evidence-first enterprise memory lifecycle for AI infrastructure — preserves, audits, and retrieves operational knowledge for agents",
   "type": "module",
   "repository": {
     "type": "git",

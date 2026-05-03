@@ -44,6 +44,14 @@ export async function searchProcedures(
       FROM preserve.procedure p
       WHERE p.tenant = ${tenant}
         AND p.lifecycle_state != 'retired'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM preserve.lifecycle_target_intelligence lti
+          WHERE lti.tenant = p.tenant
+            AND lti.target_kind = 'procedure'
+            AND lti.target_id = p.procedure_id
+            AND lti.lifecycle_status IN ('suppressed', 'retired')
+        )
         AND p.fts @@ plainto_tsquery('english', ${query})
         AND (${options.scope ?? null}::text IS NULL OR COALESCE(p.scope_path, '') LIKE (${options.scope ?? ""} || '%'))
       ORDER BY rank DESC, p.updated_at DESC

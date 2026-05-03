@@ -22,6 +22,7 @@ import os
 import re
 import time
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -54,6 +55,34 @@ CAUSAL_CHAIN_EVENT_TYPES = (
 )
 DEFAULT_WORKING_MEMORY_TTL_DAYS = 14
 FAILED_REMEDIATION_PATTERN = "(fail|failed|failure|unresolved|regress|regressed|unsuccessful|did not|error)"
+LIFECYCLE_HIDDEN_STATUSES = ("suppressed", "retired")
+LIFECYCLE_TARGET_KINDS = ("fact", "memory", "procedure", "event_frame", "working_memory")
+LIFECYCLE_OUTBOX_STATUSES = ("pending", "processing", "completed", "failed", "dead_letter")
+LIFECYCLE_EVENT_TYPES = (
+    "mission_started", "mission_completed", "mission_failed",
+    "session_started", "session_completed", "session_failed",
+    "model_call_started", "model_call_completed", "model_call_failed",
+    "tool_called", "tool_completed", "tool_failed",
+    "approval_decided", "user_corrected", "context_compacted",
+    "memory_retrieved", "memory_injected", "memory_omitted",
+    "memory_feedback", "memory_written", "memory_suppressed",
+    "memory_retired", "memory_promoted",
+    "admin_memory_suppressed", "admin_memory_retired",
+    "admin_memory_promoted", "admin_memory_disputed",
+    "admin_feedback_resolved", "admin_policy_override",
+    "artifact_archived", "extraction_completed", "fact_inserted",
+    "memory_consolidated", "procedure_used", "working_memory_added",
+    "working_memory_promoted",
+)
+LIFECYCLE_STATUSES = (
+    "candidate", "archived", "active", "review_required",
+    "validated", "disputed", "suppressed", "retired",
+)
+LIFECYCLE_FEEDBACK_SIGNALS = (
+    "retrieved_not_injected", "injected_referenced", "injected_ignored",
+    "injected_contradicted", "led_to_success", "led_to_failure",
+    "user_corrected", "user_confirmed", "admin_suppressed", "admin_promoted",
+)
 
 PREDICATE_HINTS = {
     "cause": ("cause", "caused", "causing", "root cause", "why"),
@@ -94,6 +123,92 @@ def _unique_ordered(values: list[str]) -> tuple[str, ...]:
             seen.add(normalized)
             ordered.append(normalized)
     return tuple(ordered)
+
+
+def _require_choice(value: Optional[str], allowed: tuple[str, ...], label: str) -> None:
+    if value is not None and value not in allowed:
+        raise ValueError(f"{label} must be one of: {', '.join(allowed)}")
+
+
+def _target_pair_valid(target_kind: Optional[str], target_id: Optional[str]) -> bool:
+    return (target_kind is None and target_id is None) or (target_kind is not None and target_id is not None)
+
+
+def _assert_target_exists(cur, target_kind: str, target_id: str) -> None:
+    table_by_kind = {
+        "fact": ("fact", "fact_id"),
+        "memory": ("memory", "memory_id"),
+        "procedure": ("procedure", "procedure_id"),
+        "event_frame": ("event_frame", "event_frame_id"),
+        "working_memory": ("working_memory", "working_memory_id"),
+    }
+    table, id_column = table_by_kind[target_kind]
+    cur.execute(
+        f"""
+        SELECT 1
+        FROM preserve.{table}
+        WHERE tenant = %s
+          AND {id_column} = %s
+        LIMIT 1
+        """,
+        [TENANT, target_id],
+    )
+    if cur.fetchone() is None:
+        raise ValueError(f"Lifecycle target not found: {target_kind}:{target_id}")
+
+
+def _lifecycle_visible_sql(alias: str, kind: str, id_column: str) -> str:
+    return f"""
+      AND NOT EXISTS (
+        SELECT 1
+        FROM preserve.lifecycle_target_intelligence lti
+        WHERE lti.tenant = {alias}.tenant
+          AND lti.target_kind = '{kind}'
+          AND lti.target_id = {alias}.{id_column}
+          AND lti.lifecycle_status IN ('suppressed','retired')
+      )
+    """
+
+
+def _lifecycle_procedure_visible_sql(alias: str = "p") -> str:
+    return _lifecycle_visible_sql(alias, "procedure", "procedure_id")
+
+
+def _filter_lifecycle_hidden(
+    pool: ConnectionPool,
+    merged: dict[str, "_ScoredCandidate"],
+) -> None:
+    ids_by_kind: dict[str, list[str]] = {}
+    for object_id, scored in merged.items():
+        kind = scored.candidate.object_type
+        if kind in ("fact", "memory", "procedure", "event_frame", "working_memory"):
+            ids_by_kind.setdefault(kind, []).append(object_id)
+    if not ids_by_kind:
+        return
+
+    hidden: set[str] = set()
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                for kind, ids in ids_by_kind.items():
+                    placeholders = ",".join(["%s"] * len(ids))
+                    cur.execute(
+                        f"""
+                        SELECT target_id::text
+                        FROM preserve.lifecycle_target_intelligence
+                        WHERE tenant = %s
+                          AND target_kind = %s
+                          AND lifecycle_status IN ('suppressed','retired')
+                          AND target_id::text IN ({placeholders})
+                        """,
+                        [TENANT, kind] + ids,
+                    )
+                    hidden.update(row["target_id"] for row in cur.fetchall())
+    except UndefinedTable:
+        return
+
+    for object_id in hidden:
+        merged.pop(object_id, None)
 
 
 def _plan_query(query: str, scope: Optional[str]) -> _QueryPlan:
@@ -907,6 +1022,7 @@ def _stream_embedding_index_vector(
                           AND ei.vector_role = 'procedure'
                           AND ei.target_kind = 'procedure'
                           AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                          {_lifecycle_procedure_visible_sql("p")}
                           {scope_sql}
                           {tenant_sql}
                         ORDER BY ei.embedding <=> %s::vector
@@ -1766,6 +1882,10 @@ def memory_search(
                     scores={"graph": rrf_score},
                 )
 
+    # Lifecycle status is an overlay. Suppressed/retired targets must not be
+    # returned even when native tables still consider them active/published.
+    _filter_lifecycle_hidden(pool, merged)
+
     # -- Attach evidence --
     _attach_evidence(pool, merged)
 
@@ -2219,6 +2339,7 @@ def memory_search_procedure(
                   {tenant_sql}
                   {scope_sql}
                   AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                  {_lifecycle_procedure_visible_sql("p")}
                 ORDER BY ei.embedding <=> %s::vector, p.confidence DESC, p.updated_at DESC
                 LIMIT %s
             )
@@ -2259,6 +2380,7 @@ def memory_search_procedure(
                   {tenant_sql}
                   {scope_sql}
                   AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+                  {_lifecycle_procedure_visible_sql("p")}
                   AND (
                     p.fts @@ plainto_tsquery('english', %s)
                     OR p.title ILIKE %s
@@ -2355,6 +2477,7 @@ def memory_next_step(
               {tenant_sql}
               {scope_sql}
               AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+              {_lifecycle_procedure_visible_sql("p")}
               AND (
                 p.fts @@ plainto_tsquery('english', %s)
                 OR p.title ILIKE %s
@@ -2488,6 +2611,7 @@ def _memory_procedure_steps(
           {tenant_sql}
           {scope_sql}
           AND p.lifecycle_state != 'retired'::preserve.lifecycle_state
+          {_lifecycle_procedure_visible_sql("p")}
           AND (
             p.fts @@ plainto_tsquery('english', %s)
             OR p.title ILIKE %s
@@ -2961,6 +3085,480 @@ def memory_working_cleanup_expired(
         rows = []
     return {
         "expired": len(rows),
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def lifecycle_event_enqueue(
+    pool: ConnectionPool,
+    event_id: str,
+    event_type: str,
+    source_service: str,
+    target_kind: Optional[str] = None,
+    target_id: Optional[str] = None,
+    scope: Optional[str] = None,
+    session_key: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    payload: Optional[dict] = None,
+    evidence_refs: Optional[list] = None,
+) -> dict:
+    """Enqueue an idempotent lifecycle event without mutating native memory tables."""
+    t0 = time.perf_counter()
+    _require_choice(event_type, LIFECYCLE_EVENT_TYPES, "event_type")
+    _require_choice(target_kind, LIFECYCLE_TARGET_KINDS, "target_kind")
+    if not _target_pair_valid(target_kind, target_id):
+        raise ValueError("target_kind and target_id must be supplied together")
+    idempotency_key = f"{source_service}:{event_id}"
+    sql = """
+        INSERT INTO preserve.lifecycle_outbox (
+            tenant,
+            event_id,
+            idempotency_key,
+            event_type,
+            source_service,
+            scope_path,
+            session_key,
+            trace_id,
+            target_kind,
+            target_id,
+            payload,
+            evidence_refs
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s::jsonb,
+            %s::jsonb
+        )
+        ON CONFLICT (tenant, idempotency_key) DO UPDATE
+          SET received_at = preserve.lifecycle_outbox.received_at
+        RETURNING
+            outbox_id::text,
+            tenant,
+            event_id,
+            event_type,
+            source_service,
+            status,
+            target_kind,
+            target_id::text,
+            attempt_count,
+            received_at
+    """
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                if target_kind and target_id:
+                    _assert_target_exists(cur, target_kind, target_id)
+                cur.execute(sql, [
+                    TENANT,
+                    event_id,
+                    idempotency_key,
+                    event_type,
+                    source_service,
+                    scope,
+                    session_key,
+                    trace_id,
+                    target_kind,
+                    target_id,
+                    json.dumps(payload or {}),
+                    json.dumps(evidence_refs or []),
+                ])
+                row = cur.fetchone()
+    except UndefinedTable:
+        row = None
+    return {
+        "event": row,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def lifecycle_event_list(
+    pool: ConnectionPool,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> dict:
+    """List tenant-local lifecycle outbox events."""
+    t0 = time.perf_counter()
+    _require_choice(status, LIFECYCLE_OUTBOX_STATUSES, "status")
+    limit = max(1, min(limit, 500))
+    sql = """
+        SELECT
+            outbox_id::text,
+            tenant,
+            event_id,
+            event_type,
+            source_service,
+            status,
+            target_kind,
+            target_id::text,
+            attempt_count,
+            received_at
+        FROM preserve.lifecycle_outbox
+        WHERE tenant = %s
+          AND (%s::text IS NULL OR status = %s)
+        ORDER BY received_at DESC
+        LIMIT %s
+    """
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, [TENANT, status, status or "", limit])
+                rows = cur.fetchall()
+    except UndefinedTable:
+        rows = []
+    return {
+        "events": rows,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def lifecycle_event_retry(
+    pool: ConnectionPool,
+    outbox_id: str,
+) -> dict:
+    """Move a failed/dead-letter lifecycle event back to pending."""
+    t0 = time.perf_counter()
+    sql = """
+        UPDATE preserve.lifecycle_outbox
+        SET status = 'pending',
+            next_attempt_at = now(),
+            claimed_at = NULL,
+            claimed_by = NULL,
+            error_summary = NULL
+        WHERE tenant = %s
+          AND outbox_id = %s
+          AND status IN ('failed','dead_letter')
+        RETURNING outbox_id::text
+    """
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, [TENANT, outbox_id])
+                row = cur.fetchone()
+    except UndefinedTable:
+        row = None
+    return {
+        "retried": row is not None,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def lifecycle_intelligence_backfill(
+    pool: ConnectionPool,
+    target_kind: str = "all",
+    limit: int = 1000,
+) -> dict:
+    """Backfill lifecycle intelligence rows for existing tenant-local targets."""
+    t0 = time.perf_counter()
+    if target_kind != "all":
+        _require_choice(target_kind, LIFECYCLE_TARGET_KINDS, "target_kind")
+    limit = max(1, min(limit, 10000))
+    table_by_kind = {
+        "fact": ("fact", "fact_id", "semantic"),
+        "memory": ("memory", "memory_id", "semantic"),
+        "procedure": ("procedure", "procedure_id", "procedural"),
+        "event_frame": ("event_frame", "event_frame_id", "semantic"),
+        "working_memory": ("working_memory", "working_memory_id", "working"),
+    }
+    kinds = list(table_by_kind.keys()) if target_kind == "all" else [target_kind]
+    inserted = 0
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                for kind in kinds:
+                    table, id_column, horizon = table_by_kind[kind]
+                    cur.execute(
+                        f"""
+                        WITH candidates AS (
+                            SELECT tenant, {id_column} AS target_id
+                            FROM preserve.{table}
+                            WHERE tenant = %s
+                            ORDER BY {id_column}
+                            LIMIT %s
+                        )
+                        INSERT INTO preserve.lifecycle_target_intelligence (
+                            tenant, target_kind, target_id, source_derivation_type, horizon, lifecycle_status
+                        )
+                        SELECT tenant, %s, target_id, 'imported_knowledge', %s, 'active'
+                        FROM candidates
+                        ON CONFLICT (tenant, target_kind, target_id) DO NOTHING
+                        RETURNING intelligence_id::text
+                        """,
+                        [TENANT, limit, kind, horizon],
+                    )
+                    inserted += len(cur.fetchall())
+    except UndefinedTable:
+        inserted = 0
+    return {
+        "inserted": inserted,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def lifecycle_stats(pool: ConnectionPool) -> dict:
+    """Return lifecycle outbox and target intelligence counts."""
+    t0 = time.perf_counter()
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        count(*) AS total,
+                        count(*) FILTER (WHERE status = 'pending') AS pending,
+                        count(*) FILTER (WHERE status = 'processing') AS processing,
+                        count(*) FILTER (WHERE status = 'failed') AS failed,
+                        count(*) FILTER (WHERE status = 'dead_letter') AS dead_letter
+                    FROM preserve.lifecycle_outbox
+                    WHERE tenant = %s
+                    """,
+                    [TENANT],
+                )
+                outbox = cur.fetchone() or {}
+                cur.execute(
+                    """
+                    SELECT
+                        count(*) AS total,
+                        count(*) FILTER (WHERE lifecycle_status = 'review_required') AS review_required,
+                        count(*) FILTER (WHERE lifecycle_status = 'suppressed') AS suppressed,
+                        count(*) FILTER (WHERE lifecycle_status = 'retired') AS retired
+                    FROM preserve.lifecycle_target_intelligence
+                    WHERE tenant = %s
+                    """,
+                    [TENANT],
+                )
+                intelligence = cur.fetchone() or {}
+    except UndefinedTable:
+        outbox = {}
+        intelligence = {}
+    return {
+        "tenant": TENANT,
+        "outbox": outbox,
+        "intelligence": intelligence,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def memory_lifecycle_status_set(
+    pool: ConnectionPool,
+    target_kind: str,
+    target_id: str,
+    status: str,
+    reason: str,
+    actor_type: str = "admin",
+    actor_id: Optional[str] = None,
+) -> dict:
+    """Set lifecycle intelligence status only; native truth rows are untouched."""
+    t0 = time.perf_counter()
+    _require_choice(target_kind, LIFECYCLE_TARGET_KINDS, "target_kind")
+    _require_choice(status, LIFECYCLE_STATUSES, "status")
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                _assert_target_exists(cur, target_kind, target_id)
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_target_intelligence (
+                        tenant, target_kind, target_id, source_derivation_type, lifecycle_status
+                    )
+                    VALUES (%s, %s, %s, 'corrected_by_user', %s)
+                    ON CONFLICT (tenant, target_kind, target_id) DO NOTHING
+                    """,
+                    [TENANT, target_kind, target_id, status],
+                )
+                cur.execute(
+                    """
+                    UPDATE preserve.lifecycle_target_intelligence
+                    SET lifecycle_status = %s,
+                        lock_version = lock_version + 1
+                    WHERE tenant = %s
+                      AND target_kind = %s
+                      AND target_id = %s
+                    RETURNING
+                        target_kind,
+                        target_id::text,
+                        lifecycle_status,
+                        lock_version
+                    """,
+                    [status, TENANT, target_kind, target_id],
+                )
+                row = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_audit_log (
+                        tenant, actor_type, actor_id, action, target_kind, target_id, reason
+                    )
+                    VALUES (%s, %s, %s, 'admin_status_change', %s, %s, %s)
+                    """,
+                    [TENANT, actor_type, actor_id, target_kind, target_id, reason],
+                )
+    except UndefinedTable:
+        row = None
+    return {
+        "target": row,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def memory_lifecycle_feedback_record(
+    pool: ConnectionPool,
+    target_kind: str,
+    target_id: str,
+    signal: str,
+    actor_type: str = "admin",
+    actor_id: Optional[str] = None,
+    outcome: Optional[str] = None,
+    details: Optional[dict] = None,
+) -> dict:
+    """Append lifecycle feedback and audit rows without changing native memory truth."""
+    t0 = time.perf_counter()
+    _require_choice(target_kind, LIFECYCLE_TARGET_KINDS, "target_kind")
+    _require_choice(signal, LIFECYCLE_FEEDBACK_SIGNALS, "signal")
+    if details and details.get("requested_native_mutation"):
+        raise ValueError("Lifecycle feedback cannot request native BrainCore truth mutation")
+    score_delta = {
+        "signal": signal,
+        "native_mutation": False,
+    }
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                _assert_target_exists(cur, target_kind, target_id)
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_target_intelligence (
+                        tenant, target_kind, target_id, source_derivation_type, lifecycle_status
+                    )
+                    VALUES (%s, %s, %s, 'feedback_derived', 'active')
+                    ON CONFLICT (tenant, target_kind, target_id) DO NOTHING
+                    """,
+                    [TENANT, target_kind, target_id],
+                )
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_feedback_event (
+                        tenant,
+                        target_kind,
+                        target_id,
+                        signal,
+                        outcome,
+                        score_delta,
+                        actor_type,
+                        actor_id,
+                        details
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)
+                    RETURNING feedback_id::text
+                    """,
+                    [
+                        TENANT,
+                        target_kind,
+                        target_id,
+                        signal,
+                        outcome,
+                        json.dumps(score_delta),
+                        actor_type,
+                        actor_id,
+                        json.dumps(details or {}),
+                    ],
+                )
+                feedback = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_audit_log (
+                        tenant, actor_type, actor_id, action, target_kind, target_id, feedback_id, details
+                    )
+                    VALUES (%s, %s, %s, 'feedback_recorded', %s, %s, %s, %s::jsonb)
+                    """,
+                    [
+                        TENANT,
+                        actor_type,
+                        actor_id,
+                        target_kind,
+                        target_id,
+                        feedback["feedback_id"] if feedback else None,
+                        json.dumps({"signal": signal}),
+                    ],
+                )
+    except UndefinedTable:
+        feedback = None
+    return {
+        "feedback": feedback,
+        "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }
+
+
+def context_recall_audit_record(
+    pool: ConnectionPool,
+    trigger: str,
+    mode: str,
+    max_tokens: int,
+    injected: bool = False,
+    scope: Optional[str] = None,
+    session_key: Optional[str] = None,
+    goal: Optional[str] = None,
+    cues: Optional[list] = None,
+    retrieved: Optional[list] = None,
+    prompt_package: Optional[list] = None,
+    omitted: Optional[list] = None,
+    total_tokens: int = 0,
+) -> dict:
+    """Record context recall audit metadata for shadow/eval/default-on recall."""
+    t0 = time.perf_counter()
+    _require_choice(trigger, (
+        "session_start", "mission_start", "pre_model_call", "tool_failure",
+        "task_failure", "context_compacted", "memory_protocol",
+    ), "trigger")
+    _require_choice(mode, ("off", "shadow", "eval", "default_on"), "mode")
+    sql = """
+        INSERT INTO preserve.context_recall_audit (
+            tenant,
+            trigger,
+            mode,
+            injected,
+            scope_path,
+            session_key,
+            goal,
+            cues,
+            retrieved,
+            prompt_package,
+            omitted,
+            total_tokens,
+            max_tokens
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s,
+            %s::jsonb,
+            %s::jsonb,
+            %s::jsonb,
+            %s::jsonb,
+            %s,
+            %s
+        )
+        RETURNING context_audit_id::text
+    """
+    try:
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, [
+                    TENANT,
+                    trigger,
+                    mode,
+                    injected,
+                    scope,
+                    session_key,
+                    goal,
+                    json.dumps(cues or []),
+                    json.dumps(retrieved or []),
+                    json.dumps(prompt_package or []),
+                    json.dumps(omitted or []),
+                    max(0, int(total_tokens)),
+                    max(1, int(max_tokens)),
+                ])
+                row = cur.fetchone()
+    except UndefinedTable:
+        row = None
+    return {
+        "context_audit": row,
         "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
     }
 

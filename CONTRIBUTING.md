@@ -19,8 +19,8 @@ what the repo actually ships:
    of the diff.
 4. Do not turn the example MCP server into a claim that the repo ships a
    larger tool surface than it does.
-5. Keep the launch truth surface aligned: `001` through `020`,
-   `38-table preserve schema`, `v1.1.6`, and the committed benchmark
+5. Keep the launch truth surface aligned: `001` through `021`,
+   `45-table preserve schema`, `v1.1.6`, and the committed benchmark
    artifacts.
 
 ## Push quality gate

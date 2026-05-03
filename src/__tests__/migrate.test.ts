@@ -27,6 +27,7 @@ describe("migration plan", () => {
       "018_working_memory_operations.sql",
       "019_multimodal_ingest_anchor.sql",
       "020_embedding_index_roles.sql",
+      "021_enterprise_lifecycle.sql",
     ]);
   });
 
@@ -150,6 +151,22 @@ describe("migration plan", () => {
     );
     expect(markerSqlForMigration("020_embedding_index_roles.sql")).not.toContain(
       "'preserve.embedding_index'::regclass",
+    );
+  });
+
+  test("enterprise lifecycle marker checks additive lifecycle tables", () => {
+    expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).toContain(
+      "to_regclass('preserve.lifecycle_outbox')",
+    );
+    expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).toContain(
+      "uq_lifecycle_outbox_tenant_idempotency",
+    );
+    expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).toContain(
+      "trg_lifecycle_feedback_append_only",
+    );
+    expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).toContain("lock_version");
+    expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).not.toContain(
+      "'preserve.lifecycle_outbox'::regclass",
     );
   });
 

@@ -2,10 +2,10 @@
   <img src="assets/og.jpg" alt="BrainCore logo" width="100%" />
   <h1>BrainCore</h1>
   <p>
-    <strong>Autonomous memory system for AI infrastructure.</strong>
+    <strong>Evidence-first enterprise memory lifecycle for AI infrastructure.</strong>
   </p>
   <p>
-    BrainCore extracts, preserves, and retrieves operational knowledge from incidents, coding sessions, chat messages, and monitoring data, building a persistent knowledge graph that AI agents can query.
+    BrainCore extracts, preserves, scores, audits, and retrieves operational knowledge from incidents, coding sessions, chat messages, and monitoring data, building a lifecycle-controlled knowledge graph that AI agents can query through CLI and MCP surfaces.
   </p>
   <p>
     <a href="https://github.com/SynapseGrid-Labs/BrainCore/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/SynapseGrid-Labs/BrainCore" /></a>
@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/dashboard.jpg" alt="BrainCore retrieval pipeline overview" width="100%" />
+  <img src="assets/website-recall-audit.jpg" alt="BrainCore recall audit and lifecycle admin control flow" width="100%" />
 </p>
 
 ## Quality Standard
@@ -54,6 +54,9 @@ software:
   the same change set.
 - Public numeric claims must be backed by `benchmarks/claims-to-evidence.yaml`
   or a committed benchmark artifact.
+- Lifecycle admin changes preserve native truth. Suppression and retirement are
+  recall overlays, not destructive edits to fact, memory, procedure, event, or
+  working-memory rows.
 - Routine work should land through pull requests with required GitHub Actions
   checks, not direct pushes to `main`.
 - If CI fails, the follow-up should make the root cause and verification clear
@@ -66,13 +69,16 @@ software:
 - **Source ingestion**: incident notes plus deterministic parsers for Claude Code, Codex, Codex shared memory, Discord, Telegram, Grafana, personal memory, Asana task exports, and Git commits
 - **Hybrid retrieval**: Structured SQL + FTS + vector similarity + temporal expansion, with optional graph path search, fused with RRF (`k=60`)
 - **Trust classes**: `deterministic`, `corroborated_llm`, `single_source_llm`, `human_curated`
+- **Enterprise memory lifecycle overlay**: Suppress or retire recall targets without destroying native evidence, with append-only feedback, score, and audit trails
+- **Context recall audit**: Records retrieved, injected, and omitted memory packages for evaluation and controlled rollout
 - **Project scoping**: Facts, memories, and episodes auto-tagged to projects via service mapping
 - **Quality gate**: SHA256 fingerprint dedup, secret redaction, and assertion-class validation
 - **Local-first LLM**: Uses vLLM (OpenAI-compatible); Claude CLI fallback requires explicit operator opt-in
 - **Risk review queue**: semantic truncation, prompt-injection heuristics, redaction hits, and high-risk fact kinds are queued for human review
 - **Parallel nightly pipeline**: Automated archive-extract-consolidate-publish cycle with parallel extractors and health gating
 - **Eval framework**: Gold-set benchmark with precision, recall, and fact-evidence coverage metrics
-- **MCP-ready retrieval layer**: Python retrieval library plus a FastMCP example server for downstream tool exposure
+- **MCP-ready retrieval and admin layer**: Python retrieval library plus a minimal FastMCP example server for downstream read tools and trusted lifecycle administration
+- **Deferred web app**: The browser/admin dashboard is the next upgrade path; this release is CLI/MCP-first
 
 ## Quick Start
 
@@ -132,7 +138,7 @@ psql "$BRAINCORE_POSTGRES_DSN" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname='preserve';"
 ```
 
-Expected result on a fresh clone: `38-table preserve schema`.
+Expected result on a fresh clone: `45-table preserve schema`.
 
 ### 4. Run the smoke benchmark
 
@@ -187,7 +193,8 @@ Most operational knowledge dies in one of four places:
   explanation.
 
 Traditional RAG setups index documents. BrainCore tries to preserve
-knowledge. That changes the design:
+knowledge and control its lifecycle without erasing evidence. That changes the
+design:
 
 - Artifacts are archived before they are interpreted.
 - Facts carry provenance and temporal validity windows.
@@ -195,6 +202,8 @@ knowledge. That changes the design:
   into durable memory.
 - Consolidation produces patterns and playbooks rather than just
   embeddings over raw text.
+- Lifecycle status can suppress or retire bad recall targets while the
+  underlying evidence remains available for audit and rollback.
 
 The result is a system that can answer questions like "what changed,
 when, why, and how confident are we?" rather than only "which chunk of
@@ -204,8 +213,8 @@ text had similar words?"
 
 | Path | What it is | Why it matters |
 |---|---|---|
-| `src/` | Bun CLI and write path | Owns archive, extract, consolidate, publish, health, maintenance, and project lifecycle |
-| `mcp/` | Python retrieval library | Owns read-side hybrid retrieval and typed request/response models |
+| `src/` | Bun CLI and write path | Owns archive, extract, consolidate, publish, health, maintenance, project lifecycle, and enterprise memory lifecycle administration |
+| `mcp/` | Python retrieval and lifecycle library | Owns read-side hybrid retrieval, lifecycle overlay filtering, trusted admin writes, and typed request/response models |
 | `sql/` | Schema migrations | Defines the open-source preserve schema and launch hardening fixes |
 | `benchmarks/` | Smoke + production benchmark artifacts | Gives you reproducible proof and a claim-binding gate |
 | `examples/mcp_server/` | Reference stdio MCP server | Shows how to expose the reference retrieval tool surface through FastMCP without pretending the repo ships a hardened remote MCP appliance |
@@ -217,6 +226,8 @@ What does **not** ship:
 
 - A hosted control plane
 - A general-purpose agent framework
+- A browser/admin dashboard; the web app is the next upgrade path after this
+  CLI/MCP lifecycle release
 - The larger downstream operational vault MCP deployment
 - A Docker image or GHCR publish flow
 
@@ -302,7 +313,7 @@ data sources
 ```
 
 <p align="center">
-  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram — data sources flow through archive, extraction, consolidation, retrieval, and publishing." width="100%" />
+  <img src="assets/website-lifecycle.jpg" alt="BrainCore lifecycle overlay diagram — ingest, score, recall, audit, and control stages." width="100%" />
 </p>
 
 ### Trust classes
@@ -355,7 +366,7 @@ for row in result["results"]:
 
 ## Knowledge Graph
 
-The open-source repo ships a `38-table preserve schema`. The tables are
+The open-source repo ships a `45-table preserve schema`. The tables are
 split by lifecycle rather than by document format.
 
 | Table | Purpose |
@@ -581,6 +592,9 @@ The CLI is intentionally narrow and explicit.
 | `eval --run` | execute the eval harness against `eval_case` rows |
 | `eval --report` | print the last eval report |
 | `project list` / `summary` / `archive` / `merge` / `fork` | lifecycle operations on project entities |
+| `lifecycle enqueue` / `process` / `list` / `retry` / `backfill-intelligence` / `stats` | enterprise memory lifecycle outbox and intelligence operations |
+| `memory status-set` / `feedback-record` | lifecycle admin overlays for facts, memories, procedures, event frames, and working memory |
+| `context audit-record` | records context recall audit packages for shadow/eval/default-on rollout |
 | `maintenance --stats` / `--vacuum` / `--detect-stale` | database maintenance and drift checks |
 | `health-check` | verify configured vLLM endpoints |
 | `gate-check` | surface blocked or failed artifacts |

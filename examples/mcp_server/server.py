@@ -8,7 +8,9 @@ It registers the reference read tools built into the retrieval library:
 ``memory-search``, ``memory-timeline``, ``memory-before-after``,
 ``memory-causal-chain``, ``memory-search-procedure``,
 ``memory-search-visual``, and the
-working-memory session tools. Downstream deployments can add tenant-aware
+working-memory session tools. It also registers write-capable lifecycle
+admin tools for trusted operator use only; they are not public
+unauthenticated endpoints. Downstream deployments can add tenant-aware
 or project-specific tools on top of the same library.
 
 Two design notes worth understanding before extending this file:
@@ -155,6 +157,14 @@ def _bootstrap_library() -> tuple[Any, ...]:
         ms.memory_working_list,
         ms.memory_working_mark_promotion_candidate,
         ms.memory_working_cleanup_expired,
+        ms.lifecycle_event_enqueue,
+        ms.lifecycle_event_list,
+        ms.lifecycle_event_retry,
+        ms.lifecycle_intelligence_backfill,
+        ms.lifecycle_stats,
+        ms.memory_lifecycle_status_set,
+        ms.memory_lifecycle_feedback_record,
+        ms.context_recall_audit_record,
         ms.memory_search_visual,
         mm.MemorySearchRequest,
         mm.MemorySearchResponse,
@@ -172,6 +182,14 @@ def _bootstrap_library() -> tuple[Any, ...]:
         mm.WorkingMemoryResponse,
         mm.WorkingMemoryListResponse,
         mm.WorkingMemoryCleanupResponse,
+        mm.LifecycleEventResponse,
+        mm.LifecycleEventListResponse,
+        mm.LifecycleRetryResponse,
+        mm.LifecycleBackfillResponse,
+        mm.LifecycleStatsResponse,
+        mm.LifecycleStatusResponse,
+        mm.LifecycleFeedbackResponse,
+        mm.ContextRecallAuditResponse,
         mm.VisualSearchRequest,
         mm.VisualSearchResponse,
     )
@@ -194,6 +212,14 @@ def _bootstrap_library() -> tuple[Any, ...]:
     _memory_working_list,
     _memory_working_mark_promotion_candidate,
     _memory_working_cleanup_expired,
+    _lifecycle_event_enqueue,
+    _lifecycle_event_list,
+    _lifecycle_event_retry,
+    _lifecycle_intelligence_backfill,
+    _lifecycle_stats,
+    _memory_lifecycle_status_set,
+    _memory_lifecycle_feedback_record,
+    _context_recall_audit_record,
     _memory_search_visual,
     MemorySearchRequest,
     MemorySearchResponse,
@@ -211,6 +237,14 @@ def _bootstrap_library() -> tuple[Any, ...]:
     WorkingMemoryResponse,
     WorkingMemoryListResponse,
     WorkingMemoryCleanupResponse,
+    LifecycleEventResponse,
+    LifecycleEventListResponse,
+    LifecycleRetryResponse,
+    LifecycleBackfillResponse,
+    LifecycleStatsResponse,
+    LifecycleStatusResponse,
+    LifecycleFeedbackResponse,
+    ContextRecallAuditResponse,
     VisualSearchRequest,
     VisualSearchResponse,
 ) = _bootstrap_library()
@@ -679,6 +713,171 @@ def memory_working_cleanup_expired_tool(
         limit=limit,
     )
     response = WorkingMemoryCleanupResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="lifecycle-event-enqueue")
+def lifecycle_event_enqueue_tool(
+    event_id: str,
+    event_type: str,
+    source_service: str,
+    target_kind: Optional[str] = None,
+    target_id: Optional[str] = None,
+    scope: Optional[str] = None,
+    session_key: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    payload: Optional[dict[str, Any]] = None,
+    evidence_refs: Optional[list[Any]] = None,
+) -> dict[str, Any]:
+    """Enqueue an idempotent lifecycle event."""
+    raw = _lifecycle_event_enqueue(
+        _get_pool(),
+        event_id=event_id,
+        event_type=event_type,
+        source_service=source_service,
+        target_kind=target_kind,
+        target_id=target_id,
+        scope=scope,
+        session_key=session_key,
+        trace_id=trace_id,
+        payload=payload,
+        evidence_refs=evidence_refs,
+    )
+    response = LifecycleEventResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="lifecycle-event-list")
+def lifecycle_event_list_tool(
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List tenant-local lifecycle outbox events."""
+    raw = _lifecycle_event_list(
+        _get_pool(),
+        status=status,
+        limit=limit,
+    )
+    response = LifecycleEventListResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="lifecycle-event-retry")
+def lifecycle_event_retry_tool(
+    outbox_id: str,
+) -> dict[str, Any]:
+    """Retry a failed or dead-letter lifecycle event."""
+    raw = _lifecycle_event_retry(
+        _get_pool(),
+        outbox_id=outbox_id,
+    )
+    response = LifecycleRetryResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="lifecycle-intelligence-backfill")
+def lifecycle_intelligence_backfill_tool(
+    target_kind: str = "all",
+    limit: int = 1000,
+) -> dict[str, Any]:
+    """Backfill lifecycle intelligence for existing tenant-local targets."""
+    raw = _lifecycle_intelligence_backfill(
+        _get_pool(),
+        target_kind=target_kind,
+        limit=limit,
+    )
+    response = LifecycleBackfillResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="lifecycle-stats")
+def lifecycle_stats_tool() -> dict[str, Any]:
+    """Show lifecycle outbox and target intelligence counts."""
+    raw = _lifecycle_stats(_get_pool())
+    response = LifecycleStatsResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="memory-lifecycle-status-set")
+def memory_lifecycle_status_set_tool(
+    target_kind: str,
+    target_id: str,
+    status: str,
+    reason: str,
+    actor_type: str = "admin",
+    actor_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Set lifecycle intelligence status without mutating native memory truth."""
+    raw = _memory_lifecycle_status_set(
+        _get_pool(),
+        target_kind=target_kind,
+        target_id=target_id,
+        status=status,
+        reason=reason,
+        actor_type=actor_type,
+        actor_id=actor_id,
+    )
+    response = LifecycleStatusResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="memory-lifecycle-feedback-record")
+def memory_lifecycle_feedback_record_tool(
+    target_kind: str,
+    target_id: str,
+    signal: str,
+    actor_type: str = "admin",
+    actor_id: Optional[str] = None,
+    outcome: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Append lifecycle feedback without mutating native memory truth."""
+    raw = _memory_lifecycle_feedback_record(
+        _get_pool(),
+        target_kind=target_kind,
+        target_id=target_id,
+        signal=signal,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        outcome=outcome,
+        details=details,
+    )
+    response = LifecycleFeedbackResponse.model_validate(raw)
+    return response.model_dump(mode="json")
+
+
+@app.tool(name="context-recall-audit-record")
+def context_recall_audit_record_tool(
+    trigger: str,
+    mode: str,
+    max_tokens: int,
+    injected: bool = False,
+    scope: Optional[str] = None,
+    session_key: Optional[str] = None,
+    goal: Optional[str] = None,
+    cues: Optional[list[Any]] = None,
+    retrieved: Optional[list[Any]] = None,
+    prompt_package: Optional[list[Any]] = None,
+    omitted: Optional[list[Any]] = None,
+    total_tokens: int = 0,
+) -> dict[str, Any]:
+    """Record context recall audit metadata."""
+    raw = _context_recall_audit_record(
+        _get_pool(),
+        trigger=trigger,
+        mode=mode,
+        max_tokens=max_tokens,
+        injected=injected,
+        scope=scope,
+        session_key=session_key,
+        goal=goal,
+        cues=cues,
+        retrieved=retrieved,
+        prompt_package=prompt_package,
+        omitted=omitted,
+        total_tokens=total_tokens,
+    )
+    response = ContextRecallAuditResponse.model_validate(raw)
     return response.model_dump(mode="json")
 
 

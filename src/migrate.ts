@@ -25,6 +25,7 @@ export const MIGRATION_FILES = [
   "018_working_memory_operations.sql",
   "019_multimodal_ingest_anchor.sql",
   "020_embedding_index_roles.sql",
+  "021_enterprise_lifecycle.sql",
 ] as const;
 
 type Step =
@@ -351,6 +352,34 @@ export function markerSqlForMigration(label: string): string | null {
               AND pg_get_constraintdef(oid) LIKE '%visual_ocr%'
               AND pg_get_constraintdef(oid) LIKE '%evidence%'
               AND pg_get_constraintdef(oid) LIKE '%procedure%'
+          ) AS applied
+      `;
+    case "021_enterprise_lifecycle.sql":
+      return `
+        SELECT
+          to_regclass('preserve.lifecycle_outbox') IS NOT NULL
+          AND to_regclass('preserve.lifecycle_target_intelligence') IS NOT NULL
+          AND to_regclass('preserve.lifecycle_cue') IS NOT NULL
+          AND to_regclass('preserve.context_recall_audit') IS NOT NULL
+          AND to_regclass('preserve.lifecycle_feedback_event') IS NOT NULL
+          AND to_regclass('preserve.lifecycle_score_audit') IS NOT NULL
+          AND to_regclass('preserve.lifecycle_audit_log') IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE connamespace = 'preserve'::regnamespace
+              AND conrelid = to_regclass('preserve.lifecycle_outbox')
+              AND conname = 'uq_lifecycle_outbox_tenant_idempotency'
+          )
+          AND EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = to_regclass('preserve.lifecycle_feedback_event')
+              AND tgname = 'trg_lifecycle_feedback_append_only'
+          )
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'preserve'
+              AND table_name = 'lifecycle_target_intelligence'
+              AND column_name = 'lock_version'
           ) AS applied
       `;
     default:

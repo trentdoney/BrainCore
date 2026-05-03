@@ -206,6 +206,8 @@ describe("procedure search", () => {
     expect(calls[0].text).toContain("FROM preserve.procedure p");
     expect(calls[0].text).toContain("p.tenant = ?");
     expect(calls[0].text).toContain("p.lifecycle_state != 'retired'");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
     expect(calls[0].text).toContain("ps.tenant = ?");
     expect(calls[0].values).toContain("tenant-a");
     expect(calls[0].values).toContain("restart worker");
@@ -273,6 +275,8 @@ describe("procedure operational tools", () => {
     expect(calls[0].text).toContain("JOIN LATERAL");
     expect(calls[0].text).toContain("ps.step_index > ?");
     expect(calls[0].text).toContain("p.tenant = ?");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
     expect(calls[0].values).toContain("tenant-a");
     expect(calls[0].values).toContain(1);
   });
@@ -292,6 +296,8 @@ describe("procedure operational tools", () => {
     expect(calls[0].text).toContain("JOIN preserve.procedure_step ps");
     expect(calls[0].text).toContain("LEFT JOIN preserve.episode ep");
     expect(calls[0].text).toContain("ps.action ILIKE");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
   });
 
   test("failed-remediations filters for failure outcome signals", async () => {
@@ -307,5 +313,7 @@ describe("procedure operational tools", () => {
     expect(results[0].episodeOutcome).toBe("failed");
     expect(calls[0].text).toContain("lower(COALESCE(ep.outcome, '')) ~");
     expect(calls[0].text).toContain("lower(COALESCE(ps.expected_result, '')) ~");
+    expect(calls[0].text).toContain("preserve.lifecycle_target_intelligence");
+    expect(calls[0].text).toContain("lti.lifecycle_status IN ('suppressed', 'retired')");
   });
 });

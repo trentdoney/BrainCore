@@ -76,6 +76,18 @@ function printUsage(): void {
   console.log("    list               List non-expired working-memory items");
   console.log("    mark-promotion-candidate  Mark an evidence-backed item for promotion");
   console.log("    cleanup-expired    Mark expired unpromoted items as expired");
+  console.log("  lifecycle            Enterprise memory lifecycle event processing");
+  console.log("    enqueue            Enqueue an idempotent lifecycle event");
+  console.log("    process            Claim and process pending lifecycle events");
+  console.log("    list               List lifecycle outbox events");
+  console.log("    retry              Retry a failed/dead-letter lifecycle event");
+  console.log("    backfill-intelligence  Add lifecycle intelligence rows for existing targets");
+  console.log("    stats              Show lifecycle outbox/intelligence counts");
+  console.log("  memory               Lifecycle admin surface for memory targets");
+  console.log("    status-set         Set lifecycle intelligence status only");
+  console.log("    feedback-record    Record lifecycle feedback and score audit");
+  console.log("  context              Context recall audit surface");
+  console.log("    audit-record       Record recall audit metadata");
   console.log("  project              Project lifecycle commands");
   console.log("    list               Show projects with artifact/fact counts");
   console.log("    tag --retag-all    Re-run project resolution on all artifacts");
@@ -91,7 +103,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations 001-020");
+  console.log("  migrate              Run database migrations 001-021");
   console.log("  help, --help, -h     Show this help message");
 }
 
@@ -167,6 +179,48 @@ function printWorkingMemoryUsage(): void {
   console.log("  Reads ignore expired working-memory rows unless --include-expired is set.");
 }
 
+function printLifecycleUsage(): void {
+  console.log("Usage: braincore lifecycle <subcommand> [options]");
+  console.log("");
+  console.log("Subcommands:");
+  console.log("  enqueue --event-id <id> --event-type <type> --source-service <name>");
+  console.log("  process [--limit <n>] [--worker <id>]");
+  console.log("  list [--status <status>] [--limit <n>] [--json]");
+  console.log("  retry --outbox-id <uuid>");
+  console.log("  backfill-intelligence [--target-kind fact|memory|procedure|event_frame|working_memory|all] [--limit <n>]");
+  console.log("  stats [--json]");
+  console.log("");
+  console.log("Target options:");
+  console.log("  --target-kind <kind> --target-id <uuid>");
+  console.log("  --scope <path> --session-key <key> --trace-id <id>");
+  console.log("");
+  console.log("Event vocabulary:");
+  console.log("  mission/session/model_call/tool lifecycle, approval/user correction,");
+  console.log("  context recall, memory retrieve/inject/omit/feedback/write/suppress/");
+  console.log("  retire/promote, admin memory actions, artifact/extraction/fact/");
+  console.log("  consolidation/procedure/working-memory events.");
+}
+
+function printMemoryAdminUsage(): void {
+  console.log("Usage: braincore memory <subcommand> [options]");
+  console.log("");
+  console.log("Subcommands:");
+  console.log("  status-set --target-kind <kind> --target-id <uuid> --status <status> --reason <text>");
+  console.log("  feedback-record --target-kind <kind> --target-id <uuid> --signal <signal>");
+  console.log("");
+  console.log("This surface updates lifecycle intelligence, feedback, score audit, and audit log tables only.");
+}
+
+function printContextUsage(): void {
+  console.log("Usage: braincore context <subcommand> [options]");
+  console.log("");
+  console.log("Subcommands:");
+  console.log("  audit-record --trigger <trigger> --mode off|shadow|eval|default_on --max-tokens <n>");
+  console.log("");
+  console.log("Options:");
+  console.log("  --goal <text> --scope <path> --session-key <key> --injected --total-tokens <n>");
+}
+
 // Handle help flags explicitly BEFORE the commands[] dispatch so they never
 // touch the database proxy or fall through the unknown-command error branch.
 if (!command || isHelpArg(command)) {
@@ -196,6 +250,21 @@ if (command === "reflection" && isHelpArg(args[0])) {
 
 if (command === "working-memory" && isHelpArg(args[0])) {
   printWorkingMemoryUsage();
+  process.exit(0);
+}
+
+if (command === "lifecycle" && isHelpArg(args[0])) {
+  printLifecycleUsage();
+  process.exit(0);
+}
+
+if (command === "memory" && isHelpArg(args[0])) {
+  printMemoryAdminUsage();
+  process.exit(0);
+}
+
+if (command === "context" && isHelpArg(args[0])) {
+  printContextUsage();
   process.exit(0);
 }
 
@@ -701,6 +770,272 @@ const commands: Record<string, () => Promise<void>> = {
 
     console.error(`Unknown working-memory subcommand: ${subcommand}`);
     printWorkingMemoryUsage();
+    process.exit(1);
+  },
+
+  lifecycle: async () => {
+    const subcommand = args[0];
+    if (!subcommand || isHelpArg(subcommand)) {
+      printLifecycleUsage();
+      return;
+    }
+
+    const { sql, testConnection } = await import("./db");
+    const {
+      enqueueLifecycleEvent,
+      listLifecycleEvents,
+      processLifecycleEvents,
+      retryLifecycleEvent,
+      backfillLifecycleIntelligence,
+      lifecycleStats,
+    } = await import("./lifecycle/operations");
+    const { isLifecycleEventType, isTargetKind } = await import("./lifecycle/types");
+
+    console.log("\n=== BrainCore Lifecycle ===\n");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+
+    if (subcommand === "enqueue") {
+      const eventId = getFlag("event-id");
+      const eventType = getFlag("event-type");
+      const sourceService = getFlag("source-service");
+      const targetKind = getFlag("target-kind");
+      const targetId = getFlag("target-id");
+      if (!eventId || !eventType || !sourceService || !isLifecycleEventType(eventType)) {
+        console.error("Usage: braincore lifecycle enqueue --event-id <id> --event-type <type> --source-service <name>");
+        await sql.end();
+        process.exit(1);
+      }
+      if ((targetKind && !targetId) || (!targetKind && targetId) || (targetKind && !isTargetKind(targetKind))) {
+        console.error("--target-kind and --target-id must be supplied together with a valid target kind.");
+        await sql.end();
+        process.exit(1);
+      }
+      const event = await enqueueLifecycleEvent(sql, {
+        eventId,
+        eventType,
+        sourceService,
+        scopePath: getFlag("scope") ?? null,
+        sessionKey: getFlag("session-key") ?? null,
+        taskId: getFlag("task-id") ?? null,
+        traceId: getFlag("trace-id") ?? null,
+        spanId: getFlag("span-id") ?? null,
+        targetKind: targetKind as any,
+        targetId: targetId ?? null,
+        actorType: getFlag("actor-type") ?? null,
+        actorId: getFlag("actor-id") ?? null,
+        payload: getFlag("payload-json") ? JSON.parse(getFlag("payload-json") || "{}") : {},
+        evidenceRefs: getFlag("evidence-json") ? JSON.parse(getFlag("evidence-json") || "[]") : [],
+      });
+      console.log(`  Outbox ID: ${event.outboxId}`);
+      console.log(`  Status: ${event.status}`);
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "process") {
+      const result = await processLifecycleEvents(sql, {
+        limit: Number.parseInt(getFlag("limit") || "25", 10),
+        workerId: getFlag("worker") ?? "braincore-cli",
+      });
+      console.log(`  Claimed: ${result.claimed}`);
+      console.log(`  Completed: ${result.completed}`);
+      console.log(`  Failed: ${result.failed}`);
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "list") {
+      const rows = await listLifecycleEvents(sql, {
+        status: getFlag("status") ?? null,
+        limit: Number.parseInt(getFlag("limit") || "50", 10),
+      });
+      if (hasFlag("json")) {
+        console.log(JSON.stringify(rows, null, 2));
+      } else {
+        console.log(`  Events: ${rows.length}`);
+        for (const row of rows) {
+          console.log(`  ${row.outboxId} ${row.status} ${row.eventType} target=${row.targetKind ?? "(none)"}:${row.targetId ?? "(none)"}`);
+        }
+      }
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "retry") {
+      const outboxId = getFlag("outbox-id");
+      if (!outboxId) {
+        console.error("Usage: braincore lifecycle retry --outbox-id <uuid>");
+        await sql.end();
+        process.exit(1);
+      }
+      const updated = await retryLifecycleEvent(sql, { outboxId });
+      console.log(`  Retry queued: ${updated}`);
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "backfill-intelligence") {
+      const targetKind = getFlag("target-kind") ?? "all";
+      if (targetKind !== "all" && !isTargetKind(targetKind)) {
+        console.error("--target-kind must be fact, memory, procedure, event_frame, working_memory, or all.");
+        await sql.end();
+        process.exit(1);
+      }
+      const result = await backfillLifecycleIntelligence(sql, {
+        targetKind: targetKind as any,
+        limit: Number.parseInt(getFlag("limit") || "1000", 10),
+      });
+      console.log(`  Intelligence rows inserted: ${result.inserted}`);
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "stats") {
+      const stats = await lifecycleStats(sql);
+      if (hasFlag("json")) {
+        console.log(JSON.stringify(stats, null, 2));
+      } else {
+        console.log(`  Tenant: ${stats.tenant}`);
+        console.log(`  Outbox: ${JSON.stringify(stats.outbox)}`);
+        console.log(`  Intelligence: ${JSON.stringify(stats.intelligence)}`);
+      }
+      await sql.end();
+      return;
+    }
+
+    console.error(`Unknown lifecycle subcommand: ${subcommand}`);
+    printLifecycleUsage();
+    await sql.end();
+    process.exit(1);
+  },
+
+  memory: async () => {
+    const subcommand = args[0];
+    if (!subcommand || isHelpArg(subcommand)) {
+      printMemoryAdminUsage();
+      return;
+    }
+
+    const targetKind = getFlag("target-kind");
+    const targetId = getFlag("target-id");
+    const { sql, testConnection } = await import("./db");
+    const { setLifecycleStatus, recordLifecycleFeedback } = await import("./lifecycle/operations");
+    const { isFeedbackSignal, isLifecycleStatus, isTargetKind } = await import("./lifecycle/types");
+
+    console.log("\n=== BrainCore Memory Admin ===\n");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+    if (!targetKind || !targetId || !isTargetKind(targetKind)) {
+      console.error("--target-kind and --target-id are required.");
+      await sql.end();
+      process.exit(1);
+    }
+
+    if (subcommand === "status-set") {
+      const status = getFlag("status");
+      const reason = getFlag("reason");
+      if (!status || !isLifecycleStatus(status) || !reason) {
+        console.error("Usage: braincore memory status-set --target-kind <kind> --target-id <uuid> --status <status> --reason <text>");
+        await sql.end();
+        process.exit(1);
+      }
+      const result = await setLifecycleStatus(sql, {
+        targetKind,
+        targetId,
+        status,
+        reason,
+        actorType: getFlag("actor-type") ?? "admin",
+        actorId: getFlag("actor-id") ?? null,
+      });
+      console.log(`  Lifecycle status: ${result.lifecycleStatus}`);
+      console.log(`  Lock version: ${result.lockVersion}`);
+      await sql.end();
+      return;
+    }
+
+    if (subcommand === "feedback-record") {
+      const signal = getFlag("signal");
+      if (!signal || !isFeedbackSignal(signal)) {
+        console.error("Usage: braincore memory feedback-record --target-kind <kind> --target-id <uuid> --signal <signal>");
+        await sql.end();
+        process.exit(1);
+      }
+      const result = await recordLifecycleFeedback(sql, {
+        targetKind,
+        targetId,
+        signal,
+        actorType: getFlag("actor-type") ?? "admin",
+        actorId: getFlag("actor-id") ?? null,
+        scopePath: getFlag("scope") ?? null,
+        outcome: getFlag("outcome") ?? null,
+        details: getFlag("details-json") ? JSON.parse(getFlag("details-json") || "{}") : {},
+        evidenceRefs: getFlag("evidence-json") ? JSON.parse(getFlag("evidence-json") || "[]") : [],
+      });
+      console.log(`  Feedback ID: ${result.feedbackId}`);
+      console.log(`  Lifecycle status: ${result.lifecycleStatus}`);
+      console.log(`  Quality score: ${result.qualityScore.toFixed(3)}`);
+      await sql.end();
+      return;
+    }
+
+    console.error(`Unknown memory subcommand: ${subcommand}`);
+    printMemoryAdminUsage();
+    await sql.end();
+    process.exit(1);
+  },
+
+  context: async () => {
+    const subcommand = args[0];
+    if (!subcommand || isHelpArg(subcommand)) {
+      printContextUsage();
+      return;
+    }
+
+    const { sql, testConnection } = await import("./db");
+    const { recordContextRecallAudit } = await import("./lifecycle/operations");
+
+    console.log("\n=== BrainCore Context Recall ===\n");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+
+    if (subcommand === "audit-record") {
+      const trigger = getFlag("trigger") as any;
+      const mode = getFlag("mode") as any;
+      const maxTokens = Number.parseInt(getFlag("max-tokens") || "0", 10);
+      if (!trigger || !mode || !Number.isFinite(maxTokens) || maxTokens <= 0) {
+        console.error("Usage: braincore context audit-record --trigger <trigger> --mode off|shadow|eval|default_on --max-tokens <n>");
+        await sql.end();
+        process.exit(1);
+      }
+      const result = await recordContextRecallAudit(sql, {
+        trigger,
+        mode,
+        injected: hasFlag("injected"),
+        scopePath: getFlag("scope") ?? null,
+        sessionKey: getFlag("session-key") ?? null,
+        taskId: getFlag("task-id") ?? null,
+        traceId: getFlag("trace-id") ?? null,
+        spanId: getFlag("span-id") ?? null,
+        actorType: getFlag("actor-type") ?? null,
+        actorId: getFlag("actor-id") ?? null,
+        goal: getFlag("goal") ?? null,
+        cues: getFlag("cues-json") ? JSON.parse(getFlag("cues-json") || "[]") : [],
+        queryPlan: getFlag("query-plan-json") ? JSON.parse(getFlag("query-plan-json") || "{}") : {},
+        retrieved: getFlag("retrieved-json") ? JSON.parse(getFlag("retrieved-json") || "[]") : [],
+        promptPackage: getFlag("prompt-package-json") ? JSON.parse(getFlag("prompt-package-json") || "[]") : [],
+        omitted: getFlag("omitted-json") ? JSON.parse(getFlag("omitted-json") || "[]") : [],
+        totalTokens: Number.parseInt(getFlag("total-tokens") || "0", 10),
+        maxTokens,
+      });
+      console.log(`  Context audit ID: ${result.contextAuditId}`);
+      await sql.end();
+      return;
+    }
+
+    console.error(`Unknown context subcommand: ${subcommand}`);
+    printContextUsage();
+    await sql.end();
     process.exit(1);
   },
 

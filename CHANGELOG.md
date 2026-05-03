@@ -8,6 +8,17 @@ All notable changes to BrainCore are documented in this file.
 - Added repository CODEOWNERS for `@trentdoney` and `@SynapseOpsAgent`.
 - Aligned the example MCP server with the repository-wide Python 3.11+
   support floor and accepted the NumPy 2.4.x dependency line.
+- Added enterprise memory lifecycle migration `021_enterprise_lifecycle.sql`,
+  including lifecycle outbox, target intelligence, cues, context recall audit,
+  feedback, score audit, and audit log tables.
+- Added CLI and MCP-first lifecycle administration surfaces. The browser/admin
+  web app remains a future upgrade path.
+- The open-source preserve schema is now documented as 45 tables after
+  migrations `001` through `021` plus the runtime migration ledger bootstrap.
+- Lifecycle `suppressed` and `retired` overlays are enforced in retrieval and
+  procedure search paths without mutating BrainCore native truth rows.
+- Lifecycle rollback is documented as a development/test rollback only unless
+  lifecycle audit/outbox data has first been exported.
 
 ## [1.1.6] - 2026-04-30
 
@@ -51,8 +62,8 @@ Initial public release for BrainCore.
 - External Claude CLI fallback is explicit opt-in with
   `BRAINCORE_ALLOW_EXTERNAL_LLM_FALLBACK=1` or `--use-claude`.
 - Benchmark artifacts and runners are aligned to package version `1.1.5`.
-- The open-source preserve schema is documented as 38 tables after migrations
-  `001` through `020` plus the runtime migration ledger bootstrap.
+- The open-source preserve schema documentation was aligned to the migration
+  set through `020_embedding_index_roles.sql`.
 - Nightly extraction skips optional sources when their configuration is absent.
 - Public setup examples use placeholder credentials and local-only defaults.
 
