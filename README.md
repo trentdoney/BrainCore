@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/og.png" alt="BrainCore social preview for enterprise memory lifecycle for AI agents." width="100%" />
+  <img src="assets/og.jpg" alt="BrainCore social preview for enterprise memory lifecycle for AI agents." width="100%" />
   <h1>BrainCore</h1>
   <p>
     <strong>Evidence-first enterprise memory lifecycle for AI infrastructure.</strong>
@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/lifecycle-control-flow.png" alt="BrainCore memory lifecycle control flow showing retrieve, inject, omit, feedback, and control outcomes while native evidence remains unchanged." width="100%" />
+  <img src="assets/lifecycle-control-flow.jpg" alt="BrainCore memory lifecycle control flow showing retrieve, inject, omit, feedback, and control outcomes while native evidence remains unchanged." width="100%" />
 </p>
 
 ## Quality Standard
@@ -311,6 +311,10 @@ data sources
                            | timelines, MCP    |
                            +------------------+
 ```
+
+<p align="center">
+  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram showing sources, archive, extract, consolidate, retrieve, publish, hybrid retrieval, and evidence audit guarantees." width="100%" />
+</p>
 
 ### Trust classes
 

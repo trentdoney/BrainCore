@@ -3,13 +3,13 @@
   "description": "Active BrainCore README and GitHub presentation assets.",
   "assets": [
     {
-      "path": "assets/og.png",
+      "path": "assets/og.jpg",
       "status": "active",
       "usage": "README hero block and social preview source",
-      "format": "PNG",
+      "format": "JPEG",
       "width": 1672,
       "height": 941,
-      "sha256": "311d8e03fe95aba2c67bf965e95d10aa45c011d4a7caa6c46f71f0300b013588",
+      "sha256": "3b88eef1b8df5994e58c7f2e208bcd9d976eeefbb1a31fcf0077e34043c7da3d",
       "visible_claims": [
         "BrainCore",
         "Enterprise memory lifecycle for AI agents",
@@ -18,13 +18,13 @@
       ]
     },
     {
-      "path": "assets/lifecycle-control-flow.png",
+      "path": "assets/lifecycle-control-flow.jpg",
       "status": "active",
       "usage": "README lifecycle control flow overview",
-      "format": "PNG",
+      "format": "JPEG",
       "width": 1672,
       "height": 941,
-      "sha256": "4865ed6379d55bc8337d9082c0f6eb2a54c32864652c95b7a83d77054e152e56",
+      "sha256": "13f5a1470d382d7658e10b09d58b17f96f61889e0de204483a5f7a11ae2c61e5",
       "visible_claims": [
         "Memory Lifecycle Control Flow",
         "Recall audit, feedback, suppression, and retirement without destroying evidence",
@@ -40,6 +40,35 @@
         "Append-only archive",
         "Source provenance",
         "Immutable records"
+      ]
+    },
+    {
+      "path": "assets/architecture.jpg",
+      "status": "active",
+      "usage": "README architecture section",
+      "format": "JPEG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "3d9766f0fdc7ac29aea9d7721d2dafb01d98cdc55b99ddec859a31d00862c8d3",
+      "visible_claims": [
+        "BrainCore Architecture",
+        "Sources",
+        "Archive",
+        "Extract",
+        "Consolidate",
+        "Retrieve",
+        "Publish",
+        "Hybrid Retrieval",
+        "SQL",
+        "Full-text",
+        "Vector",
+        "Temporal",
+        "Graph path",
+        "Evidence + Audit Guarantees",
+        "Append-only archive",
+        "Trust classes",
+        "Source provenance",
+        "Lifecycle audit trail"
       ]
     },
     {
