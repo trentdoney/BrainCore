@@ -83,6 +83,19 @@ LIFECYCLE_FEEDBACK_SIGNALS = (
     "injected_contradicted", "led_to_success", "led_to_failure",
     "user_corrected", "user_confirmed", "admin_suppressed", "admin_promoted",
 )
+LIFECYCLE_SCORE_DELTAS = {
+    "retrieved_not_injected": {"salience": -0.01, "strength": 0, "stability": 0, "quality": 0},
+    "injected_referenced": {"salience": 0.05, "strength": 0.04, "stability": 0.02, "quality": 0.03},
+    "injected_ignored": {"salience": -0.02, "strength": -0.01, "stability": 0, "quality": -0.01},
+    "injected_contradicted": {"salience": 0.03, "strength": -0.08, "stability": -0.08, "quality": -0.10},
+    "led_to_success": {"salience": 0.06, "strength": 0.05, "stability": 0.03, "quality": 0.04},
+    "led_to_failure": {"salience": 0.02, "strength": -0.05, "stability": -0.04, "quality": -0.07},
+    "user_corrected": {"salience": 0.06, "strength": -0.06, "stability": -0.05, "quality": -0.08},
+    "user_confirmed": {"salience": 0.04, "strength": 0.06, "stability": 0.04, "quality": 0.06},
+    "admin_suppressed": {"salience": -0.20, "strength": -0.20, "stability": 0, "quality": -0.20},
+    "admin_promoted": {"salience": 0.15, "strength": 0.10, "stability": 0.05, "quality": 0.10},
+}
+LIFECYCLE_REVIEW_FEEDBACK_SIGNALS = ("injected_contradicted", "led_to_failure", "user_corrected")
 
 PREDICATE_HINTS = {
     "cause": ("cause", "caused", "causing", "root cause", "why"),
@@ -132,6 +145,10 @@ def _require_choice(value: Optional[str], allowed: tuple[str, ...], label: str) 
 
 def _target_pair_valid(target_kind: Optional[str], target_id: Optional[str]) -> bool:
     return (target_kind is None and target_id is None) or (target_kind is not None and target_id is not None)
+
+
+def _clamp_score(value: float) -> float:
+    return max(0, min(1, value))
 
 
 def _has_non_empty_segment_evidence(evidence_refs: Optional[list]) -> bool:
@@ -3495,10 +3512,10 @@ def memory_lifecycle_feedback_record(
     _require_choice(signal, LIFECYCLE_FEEDBACK_SIGNALS, "signal")
     if details and details.get("requested_native_mutation"):
         raise ValueError("Lifecycle feedback cannot request native BrainCore truth mutation")
-    score_delta = {
-        "signal": signal,
-        "native_mutation": False,
-    }
+    score_delta = LIFECYCLE_SCORE_DELTAS[signal]
+    initial_status = "review_required" if signal in LIFECYCLE_REVIEW_FEEDBACK_SIGNALS else "active"
+    feedback = None
+    target = None
     try:
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
@@ -3508,11 +3525,35 @@ def memory_lifecycle_feedback_record(
                     INSERT INTO preserve.lifecycle_target_intelligence (
                         tenant, target_kind, target_id, source_derivation_type, lifecycle_status
                     )
-                    VALUES (%s, %s, %s, 'feedback_derived', 'active')
+                    VALUES (%s, %s, %s, 'feedback_derived', %s)
                     ON CONFLICT (tenant, target_kind, target_id) DO NOTHING
+                    """,
+                    [TENANT, target_kind, target_id, initial_status],
+                )
+                cur.execute(
+                    """
+                    SELECT
+                        salience::float,
+                        strength::float,
+                        stability::float,
+                        quality_score::float,
+                        lifecycle_status
+                    FROM preserve.lifecycle_target_intelligence
+                    WHERE tenant = %s
+                      AND target_kind = %s
+                      AND target_id = %s
+                    FOR UPDATE
                     """,
                     [TENANT, target_kind, target_id],
                 )
+                before = cur.fetchone()
+                if before is None:
+                    raise ValueError(f"Lifecycle target intelligence not found: {target_kind}:{target_id}")
+                next_salience = _clamp_score(float(before["salience"]) + score_delta["salience"])
+                next_strength = _clamp_score(float(before["strength"]) + score_delta["strength"])
+                next_stability = _clamp_score(float(before["stability"]) + score_delta["stability"])
+                next_quality = _clamp_score(float(before["quality_score"]) + score_delta["quality"])
+                next_status = "review_required" if signal in LIFECYCLE_REVIEW_FEEDBACK_SIGNALS else before["lifecycle_status"]
                 cur.execute(
                     """
                     INSERT INTO preserve.lifecycle_feedback_event (
@@ -3544,10 +3585,91 @@ def memory_lifecycle_feedback_record(
                 feedback = cur.fetchone()
                 cur.execute(
                     """
-                    INSERT INTO preserve.lifecycle_audit_log (
-                        tenant, actor_type, actor_id, action, target_kind, target_id, feedback_id, details
+                    UPDATE preserve.lifecycle_target_intelligence
+                    SET salience = %s,
+                        strength = %s,
+                        stability = %s,
+                        quality_score = %s,
+                        lifecycle_status = %s,
+                        last_reinforced_at = now(),
+                        support_count = support_count + CASE WHEN %s IN ('injected_referenced','led_to_success','user_confirmed','admin_promoted') THEN 1 ELSE 0 END,
+                        contradiction_count = contradiction_count + CASE WHEN %s IN ('injected_contradicted','led_to_failure','user_corrected') THEN 1 ELSE 0 END,
+                        lock_version = lock_version + 1
+                    WHERE tenant = %s
+                      AND target_kind = %s
+                      AND target_id = %s
+                    RETURNING
+                        target_kind,
+                        target_id::text,
+                        lifecycle_status,
+                        quality_score::float,
+                        lock_version
+                    """,
+                    [
+                        next_salience,
+                        next_strength,
+                        next_stability,
+                        next_quality,
+                        next_status,
+                        signal,
+                        signal,
+                        TENANT,
+                        target_kind,
+                        target_id,
+                    ],
+                )
+                target = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_score_audit (
+                        tenant,
+                        target_kind,
+                        target_id,
+                        trigger_type,
+                        previous_salience,
+                        new_salience,
+                        previous_strength,
+                        new_strength,
+                        previous_stability,
+                        new_stability,
+                        previous_quality_score,
+                        new_quality_score,
+                        factors,
+                        feedback_id
                     )
-                    VALUES (%s, %s, %s, 'feedback_recorded', %s, %s, %s, %s::jsonb)
+                    VALUES (%s, %s, %s, 'feedback', %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                    """,
+                    [
+                        TENANT,
+                        target_kind,
+                        target_id,
+                        before["salience"],
+                        next_salience,
+                        before["strength"],
+                        next_strength,
+                        before["stability"],
+                        next_stability,
+                        before["quality_score"],
+                        next_quality,
+                        json.dumps({"signal": signal, "delta": score_delta}),
+                        feedback["feedback_id"] if feedback else None,
+                    ],
+                )
+                cur.execute(
+                    """
+                    INSERT INTO preserve.lifecycle_audit_log (
+                        tenant,
+                        actor_type,
+                        actor_id,
+                        action,
+                        target_kind,
+                        target_id,
+                        feedback_id,
+                        before_state,
+                        after_state,
+                        details
+                    )
+                    VALUES (%s, %s, %s, 'feedback_recorded', %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
                     """,
                     [
                         TENANT,
@@ -3556,6 +3678,8 @@ def memory_lifecycle_feedback_record(
                         target_kind,
                         target_id,
                         feedback["feedback_id"] if feedback else None,
+                        json.dumps(before),
+                        json.dumps(target or {}),
                         json.dumps({"signal": signal}),
                     ],
                 )
@@ -3563,6 +3687,7 @@ def memory_lifecycle_feedback_record(
         feedback = None
     return {
         "feedback": feedback,
+        "target": target,
         "query_time_ms": round((time.perf_counter() - t0) * 1000, 2),
     }
 

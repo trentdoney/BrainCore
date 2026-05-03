@@ -182,8 +182,25 @@ def test_memory_lifecycle_status_set_updates_lifecycle_tables_only():
     assert "UPDATE preserve.memory" not in executed
 
 
-def test_memory_lifecycle_feedback_record_is_append_only_surface():
-    pool = FakePool([[{"exists": 1}], [{"feedback_id": "33333333-3333-3333-3333-333333333333"}]])
+def test_memory_lifecycle_feedback_record_updates_lifecycle_scores():
+    pool = FakePool([
+        [{"exists": 1}],
+        [{
+            "salience": 0.5,
+            "strength": 0.5,
+            "stability": 0.5,
+            "quality_score": 0.5,
+            "lifecycle_status": "active",
+        }],
+        [{"feedback_id": "33333333-3333-3333-3333-333333333333"}],
+        [{
+            "target_kind": "memory",
+            "target_id": "22222222-2222-2222-2222-222222222222",
+            "lifecycle_status": "review_required",
+            "quality_score": 0.42,
+            "lock_version": 2,
+        }],
+    ])
 
     result = memory_lifecycle_feedback_record(
         pool,
@@ -193,10 +210,16 @@ def test_memory_lifecycle_feedback_record_is_append_only_surface():
     )
 
     assert result["feedback"]["feedback_id"] == "33333333-3333-3333-3333-333333333333"
+    assert result["target"]["lifecycle_status"] == "review_required"
+    assert result["target"]["quality_score"] == 0.42
     executed = "\n".join(sql for sql, _params in pool.cursor_obj.executions)
     assert "INSERT INTO preserve.lifecycle_feedback_event" in executed
+    assert "UPDATE preserve.lifecycle_target_intelligence" in executed
+    assert "INSERT INTO preserve.lifecycle_score_audit" in executed
     assert "INSERT INTO preserve.lifecycle_audit_log" in executed
     assert "UPDATE preserve.memory" not in executed
+    assert pool.cursor_obj.executions[4][1][4] == "review_required"
+    assert pool.cursor_obj.executions[4][1][6] == "user_corrected"
 
 
 def test_memory_lifecycle_feedback_rejects_native_mutation_request():
