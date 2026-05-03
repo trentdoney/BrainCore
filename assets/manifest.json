@@ -3,50 +3,43 @@
   "description": "Active BrainCore README and GitHub presentation assets.",
   "assets": [
     {
-      "path": "assets/og.jpg",
+      "path": "assets/og.png",
       "status": "active",
       "usage": "README hero block and social preview source",
-      "format": "JPEG",
-      "width": 1600,
-      "height": 841,
-      "sha256": "729e085ac6bae492bb43d5743d3daa1bf645affe8d0d66ff716a797ea8fd177f",
+      "format": "PNG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "311d8e03fe95aba2c67bf965e95d10aa45c011d4a7caa6c46f71f0300b013588",
       "visible_claims": [
-        "v1.1.6",
-        "26,966 facts",
-        "38-table preserve schema",
-        "98.52% fact-evidence coverage",
-        "P50 71.6 ms / P95 85.2 ms with vector stream disabled"
+        "BrainCore",
+        "Enterprise memory lifecycle for AI agents",
+        "PostgreSQL + pgvector · CLI/MCP controls",
+        "v1.1.6"
       ]
     },
     {
-      "path": "assets/architecture.jpg",
+      "path": "assets/lifecycle-control-flow.png",
       "status": "active",
-      "usage": "README architecture section",
-      "format": "JPEG",
-      "width": 1600,
-      "height": 921,
-      "sha256": "4e8d5484ed34944ca02b64342c66b6b16d4ddd5b3f7337df0a563639ee292481",
+      "usage": "README lifecycle control flow overview",
+      "format": "PNG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "4865ed6379d55bc8337d9082c0f6eb2a54c32864652c95b7a83d77054e152e56",
       "visible_claims": [
-        "v1.1.6",
-        "38-table preserve schema",
-        "17 reference stdio MCP tools"
-      ]
-    },
-    {
-      "path": "assets/dashboard.jpg",
-      "status": "active",
-      "usage": "README retrieval pipeline overview",
-      "format": "JPEG",
-      "width": 1600,
-      "height": 900,
-      "sha256": "219cc3b6abee7c367439d5e34279d56978df9647e4387d878980c514220fdce9",
-      "visible_claims": [
-        "v1.1.6",
-        "26,966 facts",
-        "38-table preserve schema",
-        "98.52% fact-evidence coverage",
-        "P50 71.6 ms / P95 85.2 ms with vector stream disabled",
-        "17 reference stdio MCP tools"
+        "Memory Lifecycle Control Flow",
+        "Recall audit, feedback, suppression, and retirement without destroying evidence",
+        "Retrieve",
+        "Inject",
+        "Omit",
+        "Feedback",
+        "Control",
+        "Active",
+        "Suppressed",
+        "Retired",
+        "Native evidence remains unchanged",
+        "Append-only archive",
+        "Source provenance",
+        "Immutable records"
       ]
     },
     {

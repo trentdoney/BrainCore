@@ -2,12 +2,13 @@
 
 The current BrainCore visuals are committed in this repository. Files marked
 `Active` are used by the README or GitHub presentation layer in this branch.
+Historical image files may remain in the directory, but only manifest-listed
+active assets should be referenced by public docs.
 
 | File | Status | Dimensions | Format | Usage |
 |---|---|---|---|---|
-| `og.jpg` | Active | 1600 by 841 | JPEG | README hero block and social preview source |
-| `architecture.jpg` | Active | 1600 by 921 | JPEG | README architecture section |
-| `dashboard.jpg` | Active | 1600 by 900 | JPEG | README retrieval pipeline overview |
+| `og.png` | Active | 1672 by 941 | PNG | README hero block and social preview source |
+| `lifecycle-control-flow.png` | Active | 1672 by 941 | PNG | README lifecycle control flow overview |
 | `maintained-by-trent.jpg` | Active | 1200 by 397 | JPEG | README author note banner |
 | `manifest.json` | Reference | n/a | JSON | Hash and dimension manifest |
 | `README.md` | Reference | n/a | Markdown | Asset notes |
