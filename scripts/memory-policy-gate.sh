@@ -66,6 +66,8 @@ check_contains mcp/memory_search.py 'governance_status' 'MCP search returns gove
 check_contains mcp/memory_search.py 'EXCLUDED_MEMORY_GOVERNANCE_STATUSES' 'MCP search has default exclusion list'
 check_contains mcp/memory_search.py 'EXCLUDED_MEMORY_TRUST_CLASSES' 'MCP search has trust exclusion list'
 check_contains mcp/memory_search.py '_memory_governance_clause\(include_excluded' 'MCP search applies governance clause'
+check_contains mcp/memory_search.py '_related_memory_governance_clause\(include_excluded' 'MCP search filters non-memory rows connected to excluded memories'
+check_contains mcp/memory_search.py 'preserve\.memory_support' 'MCP search traces related rows through memory support'
 
 echo ""
 echo "--- TypeScript/Bun checks ---"

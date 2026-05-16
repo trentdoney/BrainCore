@@ -11,6 +11,7 @@ All notable changes to BrainCore are documented in this file.
 
 ### Fixed
 - Governed prompt search now excludes archived, quarantined, suppressed, retired, and retired-superseded memories by default while preserving an explicit operator inspection override.
+- Governed MCP search now applies the same default exclusion to facts, segments, and episodes connected to excluded memories.
 - Governance conflict detection now writes to BrainCore's existing typed memory graph schema on the public repository line.
 
 ### Changed
@@ -26,6 +27,8 @@ All notable changes to BrainCore are documented in this file.
   migrations `001` through `022` plus the runtime migration ledger bootstrap.
 - Lifecycle `suppressed` and `retired` overlays are enforced in retrieval and
   procedure search paths without mutating BrainCore native truth rows.
+- Memory governance metadata, lifecycle sensitivity/redaction values, and cue
+  scoring semantics are documented and validated at lifecycle ingestion.
 - Lifecycle rollback is documented as a development/test rollback only unless
   lifecycle audit/outbox data has first been exported.
 

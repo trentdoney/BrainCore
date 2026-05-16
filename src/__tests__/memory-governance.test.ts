@@ -13,6 +13,7 @@ import {
   omitReason,
   packageMemoriesForPrompt,
   redactValue,
+  recordLifecycleEvent,
   recordMemoryFeedback,
   recordQualityAudit,
   searchForPrompt,
@@ -74,6 +75,26 @@ describe("memory governance helpers", () => {
     expect(draft.sourceClass).toBe("observed");
     expect(draft.qualityScore).toBeGreaterThan(0.5);
     expect(draft.cues.map((cue) => cue.cueText)).toContain("session_completed");
+  });
+
+  test("rejects undocumented lifecycle sensitivity and redaction values", async () => {
+    const fakeSql = (() => {
+      throw new Error("SQL should not run for invalid governance metadata");
+    }) as any;
+
+    await expect(recordLifecycleEvent(fakeSql, {
+      eventId: "evt-invalid-sensitivity",
+      eventType: "session_completed",
+      sourceService: "agent-runtime",
+      sensitivityClass: "top_secret" as any,
+    })).rejects.toThrow("sensitivityClass");
+
+    await expect(recordLifecycleEvent(fakeSql, {
+      eventId: "evt-invalid-redaction",
+      eventType: "session_completed",
+      sourceService: "agent-runtime",
+      redactionStatus: "plain_text" as any,
+    })).rejects.toThrow("redactionStatus");
   });
 
   test("applies prompt token budgets without expanding content", () => {

@@ -279,6 +279,38 @@ development and disposable database rollback tests. On a live system, export or
 archive lifecycle outbox, feedback, score audit, and audit log data before
 running the down migration because those tables are intentionally dropped.
 
+### Memory Governance Metadata
+
+Migration `022_memory_governance.sql` adds prompt-governance fields directly to
+`preserve.memory`. Default prompt search hides memories with
+`governance_status IN ('archived','quarantined','suppressed','retired')` or
+`trust_class = 'retired_superseded'`. The MCP read path applies the same guard
+to facts, segments, and episodes connected through `memory_support`, fact
+evidence, episode events, or episode primary artifacts. `include_excluded=true`
+is an operator inspection override, not the default prompt path.
+
+`governance_meta` is a JSONB extension point owned by the governance API. The
+current keys are:
+
+- `lastStatusChange`: status, reason, actor type/id, and timestamp from
+  operator status changes.
+- `lifecycleEvent`: source service, event id, trace/span ids, episode/project
+  ids, evidence refs, and redacted lifecycle payload metadata.
+- `compactedAt`: compaction timestamp and reason when stale low-quality
+  memories are archived.
+
+Lifecycle outbox rows use a small public vocabulary for classification:
+`sensitivity_class` is one of `public`, `internal`, `confidential`, or
+`restricted`; `redaction_status` is one of `raw`, `redacted`, `sanitized`, or
+`not_required`.
+
+Memory cues are deterministic recall hints. Template cues come from lifecycle
+fields such as event type, source service, actor, project, episode, trace, and
+scope. Keyword cues are lowercase alphanumeric terms at least four characters
+long, stop-word filtered, capped at eight terms, and assigned a `0.35`
+usefulness score. Template cues use `0.50` by default, with higher confidence
+for source, event, and actor anchors.
+
 ### Why `project_service_map` matters
 
 This table was a launch blocker because the seed file used it before any

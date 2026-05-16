@@ -27,6 +27,8 @@ export type MemoryTrustClass =
   | "corroborated_llm"
   | "single_source_llm"
   | "retired_superseded";
+export type MemorySensitivityClass = "public" | "internal" | "confidential" | "restricted";
+export type MemoryRedactionStatus = "raw" | "redacted" | "sanitized" | "not_required";
 
 export interface MemoryLifecycleEvent {
   eventId: string;
@@ -41,8 +43,8 @@ export interface MemoryLifecycleEvent {
   actorType?: string;
   actorId?: string;
   occurredAt?: string | Date;
-  sensitivityClass?: string;
-  redactionStatus?: string;
+  sensitivityClass?: MemorySensitivityClass;
+  redactionStatus?: MemoryRedactionStatus;
   payload?: Record<string, unknown>;
   evidenceRefs?: Record<string, unknown>[];
   schemaVersion?: number;
@@ -211,8 +213,21 @@ export interface MemorySourceAttribution {
 }
 
 const NON_PROMPT_STATUSES = new Set<MemoryGovernanceStatus>(["archived", "quarantined", "suppressed", "retired"]);
+const MEMORY_SENSITIVITY_CLASSES: MemorySensitivityClass[] = ["public", "internal", "confidential", "restricted"];
+const MEMORY_REDACTION_STATUSES: MemoryRedactionStatus[] = ["raw", "redacted", "sanitized", "not_required"];
 const CONFIG_VERSION = "braincore-memory-governance-v1";
 const LIFECYCLE_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function requireGovernanceChoice<T extends string>(value: string, allowed: readonly T[], label: string): T {
+  if (!allowed.includes(value as T)) {
+    throw new Error(`${label} must be one of: ${allowed.join(", ")}`);
+  }
+  return value as T;
+}
+
+function optionalGovernanceChoice<T extends string>(value: string | undefined, allowed: readonly T[], label: string): T | undefined {
+  return value === undefined ? undefined : requireGovernanceChoice(value, allowed, label);
+}
 
 export function isPromptEligible(status?: string | null): boolean {
   return !NON_PROMPT_STATUSES.has((status ?? "active") as MemoryGovernanceStatus);
@@ -291,6 +306,8 @@ export function draftFromLifecycleEvent(event: MemoryLifecycleEvent): GovernedMe
 export async function recordLifecycleEvent(sql: postgres.Sql, event: MemoryLifecycleEvent): Promise<void> {
   const tenant = event.tenant ?? config.tenant;
   const idempotencyKey = event.idempotencyKey ?? `${event.sourceService}:${event.eventId}`;
+  const sensitivityClass = optionalGovernanceChoice(event.sensitivityClass, MEMORY_SENSITIVITY_CLASSES, "sensitivityClass");
+  const redactionStatus = requireGovernanceChoice(event.redactionStatus ?? "redacted", MEMORY_REDACTION_STATUSES, "redactionStatus");
   await sql`
     INSERT INTO preserve.memory_lifecycle_outbox (
       event_id, idempotency_key, event_type, source_service, tenant, project_entity_id,
@@ -300,7 +317,7 @@ export async function recordLifecycleEvent(sql: postgres.Sql, event: MemoryLifec
       ${event.eventId}, ${idempotencyKey}, ${event.eventType}, ${event.sourceService}, ${tenant},
       ${event.projectEntityId ?? null}, ${event.episodeId ?? null}, ${event.traceId ?? null}, ${event.spanId ?? null},
       ${event.actorType ?? null}, ${event.actorId ?? null}, ${event.occurredAt ? new Date(event.occurredAt) : new Date()},
-      ${event.sensitivityClass ?? null}, ${event.redactionStatus ?? "redacted"},
+      ${sensitivityClass ?? null}, ${redactionStatus},
       ${sql.json(redactValue(event.payload ?? {}) as any)}, ${sql.json(redactValue(event.evidenceRefs ?? []) as any)},
       ${event.schemaVersion ?? 1}, ${event.configVersion ?? CONFIG_VERSION}
     )
