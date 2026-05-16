@@ -35,6 +35,8 @@ from .embedder import embed_query
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+EXCLUDED_MEMORY_GOVERNANCE_STATUSES = ("archived", "quarantined", "suppressed", "retired")
+EXCLUDED_MEMORY_TRUST_CLASSES = ("retired_superseded",)
 
 # Tenant scoping — one process per tenant, exact tenant match only.
 TENANT = os.environ.get("BRAINCORE_TENANT", "default")
@@ -420,6 +422,10 @@ class _Candidate:
     valid_to: Optional[str] = None
     scope_path: Optional[str] = None
     priority: Optional[int] = None
+    namespace: Optional[str] = None
+    governance_status: Optional[str] = None
+    token_count: Optional[int] = None
+    trust_class: Optional[str] = None
     evidence: list[dict] = field(default_factory=list)
     why: list[dict] = field(default_factory=list)
 
@@ -665,6 +671,106 @@ def _timeline_entries_from_rows(rows, include_evidence: bool) -> list[dict]:
     return entries
 
 
+def _memory_governance_clause(include_excluded: bool, prefix: str = "") -> tuple[str, list]:
+    """Build the prompt-safety filter for preserve.memory rows."""
+    if include_excluded:
+        return "", []
+    col = f"{prefix}governance_status"
+    trust_col = f"{prefix}trust_class"
+    status_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_GOVERNANCE_STATUSES))
+    trust_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_TRUST_CLASSES))
+    return (
+        f" AND {col} NOT IN ({status_placeholders}) AND {trust_col} NOT IN ({trust_placeholders})",
+        list(EXCLUDED_MEMORY_GOVERNANCE_STATUSES) + list(EXCLUDED_MEMORY_TRUST_CLASSES),
+    )
+
+
+def _excluded_memory_governance_predicate(prefix: str = "") -> tuple[str, list]:
+    """Build the positive predicate for memories that are unsafe for prompt recall."""
+    status_col = f"{prefix}governance_status"
+    trust_col = f"{prefix}trust_class"
+    status_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_GOVERNANCE_STATUSES))
+    trust_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_TRUST_CLASSES))
+    return (
+        f"({status_col} IN ({status_placeholders}) OR {trust_col} IN ({trust_placeholders}))",
+        list(EXCLUDED_MEMORY_GOVERNANCE_STATUSES) + list(EXCLUDED_MEMORY_TRUST_CLASSES),
+    )
+
+
+def _related_memory_governance_clause(include_excluded: bool, object_type: str, prefix: str) -> tuple[str, list]:
+    """Exclude non-memory rows connected to governed memories by default."""
+    if include_excluded:
+        return "", []
+
+    excluded_sql, excluded_params = _excluded_memory_governance_predicate("gm.")
+    tenant_col = f"{prefix}tenant"
+
+    if object_type == "fact":
+        id_col = f"{prefix}fact_id"
+        return (
+            f"""
+              AND NOT EXISTS (
+                SELECT 1
+                FROM preserve.memory_support gms
+                JOIN preserve.memory gm
+                  ON gm.memory_id = gms.memory_id
+                 AND gm.tenant = {tenant_col}
+                WHERE (gms.fact_id = {id_col} OR gms.episode_id = {prefix}episode_id)
+                  AND {excluded_sql}
+              )
+            """,
+            excluded_params,
+        )
+
+    if object_type == "episode":
+        id_col = f"{prefix}episode_id"
+        return (
+            f"""
+              AND NOT EXISTS (
+                SELECT 1
+                FROM preserve.memory_support gms
+                JOIN preserve.memory gm
+                  ON gm.memory_id = gms.memory_id
+                 AND gm.tenant = {tenant_col}
+                WHERE gms.episode_id = {id_col}
+                  AND {excluded_sql}
+              )
+            """,
+            excluded_params,
+        )
+
+    if object_type == "segment":
+        id_col = f"{prefix}segment_id"
+        artifact_col = f"{prefix}artifact_id"
+        return (
+            f"""
+              AND NOT EXISTS (
+                SELECT 1
+                FROM preserve.memory_support gms
+                JOIN preserve.memory gm
+                  ON gm.memory_id = gms.memory_id
+                 AND gm.tenant = {tenant_col}
+                LEFT JOIN preserve.fact_evidence gfe
+                  ON gfe.fact_id = gms.fact_id
+                LEFT JOIN preserve.event gev
+                  ON gev.episode_id = gms.episode_id
+                LEFT JOIN preserve.episode gep
+                  ON gep.episode_id = gms.episode_id
+                WHERE (
+                    gfe.segment_id = {id_col}
+                    OR gev.segment_id = {id_col}
+                    OR gep.primary_artifact_id = {artifact_col}
+                  )
+                  AND {excluded_sql}
+              )
+            """,
+            excluded_params,
+        )
+
+    raise ValueError(f"Unsupported governance object type: {object_type}")
+
+
+
 # ---------------------------------------------------------------------------
 # Stream 1: Structured SQL — entity name match -> facts
 # ---------------------------------------------------------------------------
@@ -676,6 +782,7 @@ def _stream_structured(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Match entity names, then return facts where that entity is subject."""
     if type_filter and type_filter not in ("fact", None):
@@ -684,6 +791,7 @@ def _stream_structured(
     as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
     scope_sql, scope_params = _scope_clause(scope, "f.")
     tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
+    governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "fact", "f.")
 
     # Search for entity by canonical_name or alias match
     sql = f"""
@@ -715,6 +823,7 @@ def _stream_structured(
             {as_of_sql}
             {scope_sql}
             {tenant_sql}
+            {governance_sql}
         ORDER BY f.confidence DESC, f.last_seen_at DESC NULLS LAST
         LIMIT %s
     """
@@ -725,6 +834,7 @@ def _stream_structured(
         + as_of_params
         + scope_params
         + tenant_params
+        + governance_params
         + [limit * 3]
     )
 
@@ -760,6 +870,7 @@ def _stream_fts(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """FTS across fact, memory, segment, episode using plainto_tsquery."""
     candidates: list[_Candidate] = []
@@ -772,6 +883,7 @@ def _stream_fts(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
                 scope_sql, scope_params = _scope_clause(scope, "f.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "fact", "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -788,6 +900,7 @@ def _stream_fts(
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
@@ -796,6 +909,7 @@ def _stream_fts(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [sub_limit]
                 )
                 cur.execute(sql, params)
@@ -815,6 +929,7 @@ def _stream_fts(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
+                governance_sql, governance_params = _memory_governance_clause(include_excluded, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -824,12 +939,17 @@ def _stream_fts(
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
                         m.priority,
+                        m.namespace::text AS namespace,
+                        m.governance_status::text AS governance_status,
+                        m.trust_class::text AS trust_class,
+                        m.token_count,
                         ts_rank_cd(m.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.memory m
                     WHERE m.fts @@ plainto_tsquery('english', %s)
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
@@ -838,6 +958,7 @@ def _stream_fts(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [sub_limit]
                 )
                 cur.execute(sql, params)
@@ -850,12 +971,17 @@ def _stream_fts(
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
                         priority=r.get("priority"),
+                        namespace=r.get("namespace"),
+                        governance_status=r.get("governance_status"),
+                        token_count=r.get("token_count"),
+                        trust_class=r.get("trust_class"),
                     ))
 
             # -- segment FTS --
             if type_filter in (None, "segment"):
                 scope_sql, scope_params = _scope_clause(scope, "s.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "s.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "segment", "s.")
                 sql = f"""
                     SELECT
                         s.segment_id::text AS object_id,
@@ -870,6 +996,7 @@ def _stream_fts(
                     WHERE s.fts @@ plainto_tsquery('english', %s)
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
@@ -877,6 +1004,7 @@ def _stream_fts(
                     [query, query]
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [sub_limit]
                 )
                 cur.execute(sql, params)
@@ -894,6 +1022,7 @@ def _stream_fts(
             if type_filter in (None, "episode"):
                 scope_sql, scope_params = _scope_clause(scope, "ep.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "ep.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "episode", "ep.")
                 sql = f"""
                     SELECT
                         ep.episode_id::text AS object_id,
@@ -909,6 +1038,7 @@ def _stream_fts(
                     WHERE ep.fts @@ plainto_tsquery('english', %s)
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
@@ -916,6 +1046,7 @@ def _stream_fts(
                     [query, query]
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [sub_limit]
                 )
                 cur.execute(sql, params)
@@ -944,6 +1075,7 @@ def _stream_embedding_index_vector(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Embed query, then search role-specific preserve.embedding_index rows.
 
@@ -962,6 +1094,7 @@ def _stream_embedding_index_vector(
                     as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
                     scope_sql, scope_params = _scope_clause(scope, "f.")
                     tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
+                    governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "fact", "f.")
                     sql = f"""
                         SELECT
                             f.fact_id::text AS object_id,
@@ -983,6 +1116,7 @@ def _stream_embedding_index_vector(
                           {as_of_sql}
                           {scope_sql}
                           {tenant_sql}
+                          {governance_sql}
                         ORDER BY ei.embedding <=> %s::vector
                         LIMIT %s
                     """
@@ -991,6 +1125,7 @@ def _stream_embedding_index_vector(
                         + as_of_params
                         + scope_params
                         + tenant_params
+                        + governance_params
                         + [emb_str, sub_limit]
                     )
                     cur.execute(sql, params)
@@ -1008,6 +1143,7 @@ def _stream_embedding_index_vector(
                 if type_filter in (None, "segment"):
                     scope_sql, scope_params = _scope_clause(scope, "s.")
                     tenant_sql, tenant_params = _tenant_clause(TENANT, "s.")
+                    governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "segment", "s.")
                     sql = f"""
                         SELECT
                             s.segment_id::text AS object_id,
@@ -1027,6 +1163,7 @@ def _stream_embedding_index_vector(
                           AND ei.target_kind = 'segment'
                           {scope_sql}
                           {tenant_sql}
+                          {governance_sql}
                         ORDER BY ei.embedding <=> %s::vector
                         LIMIT %s
                     """
@@ -1034,6 +1171,7 @@ def _stream_embedding_index_vector(
                         [emb_str, TENANT]
                         + scope_params
                         + tenant_params
+                        + governance_params
                         + [emb_str, sub_limit]
                     )
                     cur.execute(sql, params)
@@ -1216,13 +1354,14 @@ def _stream_vector(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Embed query, then cosine-similarity search across all 4 tables."""
     if EMBEDDING_INDEX_RETRIEVAL_ENABLED:
         # Embedding-index retrieval currently covers fact evidence and segment text only.
         # Memory/episode type filters intentionally return no vector candidates until
         # dedicated embedding_index roles are added for those result types.
-        return _stream_embedding_index_vector(pool, query, as_of, scope, type_filter, limit)
+        return _stream_embedding_index_vector(pool, query, as_of, scope, type_filter, limit, include_excluded)
 
     embedding = embed_query(query)
     emb_str = _vec_literal(embedding)
@@ -1236,6 +1375,7 @@ def _stream_vector(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "f.")
                 scope_sql, scope_params = _scope_clause(scope, "f.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "f.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "fact", "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -1252,6 +1392,7 @@ def _stream_vector(
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY f.embedding <=> %s::vector
                     LIMIT %s
                 """
@@ -1260,6 +1401,7 @@ def _stream_vector(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [emb_str, sub_limit]
                 )
                 cur.execute(sql, params)
@@ -1279,6 +1421,7 @@ def _stream_vector(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
+                governance_sql, governance_params = _memory_governance_clause(include_excluded, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -1288,12 +1431,17 @@ def _stream_vector(
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
                         m.priority,
+                        m.namespace::text AS namespace,
+                        m.governance_status::text AS governance_status,
+                        m.trust_class::text AS trust_class,
+                        m.token_count,
                         1 - (m.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.memory m
                     WHERE m.embedding IS NOT NULL
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY m.embedding <=> %s::vector
                     LIMIT %s
                 """
@@ -1302,6 +1450,7 @@ def _stream_vector(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [emb_str, sub_limit]
                 )
                 cur.execute(sql, params)
@@ -1314,12 +1463,17 @@ def _stream_vector(
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
                         priority=r.get("priority"),
+                        namespace=r.get("namespace"),
+                        governance_status=r.get("governance_status"),
+                        token_count=r.get("token_count"),
+                        trust_class=r.get("trust_class"),
                     ))
 
             # -- segment vector --
             if type_filter in (None, "segment"):
                 scope_sql, scope_params = _scope_clause(scope, "s.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "s.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "segment", "s.")
                 sql = f"""
                     SELECT
                         s.segment_id::text AS object_id,
@@ -1334,6 +1488,7 @@ def _stream_vector(
                     WHERE s.embedding IS NOT NULL
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY s.embedding <=> %s::vector
                     LIMIT %s
                 """
@@ -1341,6 +1496,7 @@ def _stream_vector(
                     [emb_str]
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [emb_str, sub_limit]
                 )
                 cur.execute(sql, params)
@@ -1358,6 +1514,7 @@ def _stream_vector(
             if type_filter in (None, "episode"):
                 scope_sql, scope_params = _scope_clause(scope, "ep.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "ep.")
+                governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "episode", "ep.")
                 sql = f"""
                     SELECT
                         ep.episode_id::text AS object_id,
@@ -1373,6 +1530,7 @@ def _stream_vector(
                     WHERE ep.embedding IS NOT NULL
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY ep.embedding <=> %s::vector
                     LIMIT %s
                 """
@@ -1380,6 +1538,7 @@ def _stream_vector(
                     [emb_str]
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [emb_str, sub_limit]
                 )
                 cur.execute(sql, params)
@@ -1407,6 +1566,7 @@ def _stream_temporal_expand(
     as_of: Optional[str],
     scope: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Given entities from streams 1-3, expand via fact relations and
     episode membership.  This is enrichment — not independent candidates."""
@@ -1427,6 +1587,7 @@ def _stream_temporal_expand(
     as_of_sql, as_of_params = _as_of_clause(as_of, "f2.")
     scope_sql, scope_params = _scope_clause(scope, "f2.")
     tenant_sql, tenant_params = _tenant_clause(TENANT, "f2.")
+    governance_sql, governance_params = _related_memory_governance_clause(include_excluded, "fact", "f2.")
 
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -1452,6 +1613,7 @@ def _stream_temporal_expand(
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     LIMIT %s
                 """
                 params = (
@@ -1459,6 +1621,7 @@ def _stream_temporal_expand(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [limit * 2]
                 )
                 cur.execute(sql, params)
@@ -1480,6 +1643,7 @@ def _stream_temporal_expand(
                 as_of_sql2, as_of_params2 = _as_of_clause(as_of, "f.")
                 scope_sql2, scope_params2 = _scope_clause(scope, "f.")
                 tenant_sql2, tenant_params2 = _tenant_clause(TENANT, "f.")
+                governance_sql2, governance_params2 = _related_memory_governance_clause(include_excluded, "fact", "f.")
                 sql = f"""
                     SELECT
                         f.fact_id::text AS object_id,
@@ -1495,6 +1659,7 @@ def _stream_temporal_expand(
                       {as_of_sql2}
                       {scope_sql2}
                       {tenant_sql2}
+                      {governance_sql2}
                     LIMIT %s
                 """
                 params = (
@@ -1502,6 +1667,7 @@ def _stream_temporal_expand(
                     + as_of_params2
                     + scope_params2
                     + tenant_params2
+                    + governance_params2
                     + [limit * 2]
                 )
                 cur.execute(sql, params)
@@ -1531,6 +1697,7 @@ def _stream_graph_path(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Expand from current seeds over typed memory_edge links."""
     if type_filter == "segment":
@@ -1554,6 +1721,9 @@ def _stream_graph_path(
     as_of_memory_sql, as_of_memory_params = _as_of_clause(as_of, "m.")
     scope_memory_sql, scope_memory_params = _scope_clause(scope, "m.")
     scope_episode_sql, scope_episode_params = _scope_clause(scope, "ep.")
+    fact_governance_sql, fact_governance_params = _related_memory_governance_clause(include_excluded, "fact", "f.")
+    memory_governance_sql, memory_governance_params = _memory_governance_clause(include_excluded, "m.")
+    episode_governance_sql, episode_governance_params = _related_memory_governance_clause(include_excluded, "episode", "ep.")
 
     type_sql = ""
     type_params: list[str] = []
@@ -1631,6 +1801,7 @@ def _stream_graph_path(
              AND f.current_status = 'active'
              {as_of_fact_sql}
              {scope_fact_sql}
+             {fact_governance_sql}
             UNION ALL
             SELECT
                 n.node_id::text AS object_id,
@@ -1656,6 +1827,7 @@ def _stream_graph_path(
              AND m.tenant = %s
              {as_of_memory_sql}
              {scope_memory_sql}
+             {memory_governance_sql}
             UNION ALL
             SELECT
                 n.node_id::text AS object_id,
@@ -1680,6 +1852,7 @@ def _stream_graph_path(
              AND ep.episode_id = n.node_id
              AND ep.tenant = %s
              {scope_episode_sql}
+             {episode_governance_sql}
         )
         SELECT *
         FROM objects
@@ -1697,11 +1870,14 @@ def _stream_graph_path(
         + [TENANT]
         + as_of_fact_params
         + scope_fact_params
+        + fact_governance_params
         + [TENANT]
         + as_of_memory_params
         + scope_memory_params
+        + memory_governance_params
         + [TENANT]
         + scope_episode_params
+        + episode_governance_params
         + type_params
         + [limit * 2]
     )
@@ -1855,6 +2031,7 @@ def memory_search(
     limit: int = 10,
     include_graph: bool = False,
     explain_paths: bool = False,
+    include_excluded: bool = False,
 ) -> dict:
     """Hybrid search across the preserve schema.
 
@@ -1865,9 +2042,9 @@ def memory_search(
     query_plan = _plan_query(query, scope)
 
     # -- Run streams 1-3 --
-    structured = _stream_structured(pool, query, as_of, scope, type_filter, limit)
-    fts = _stream_fts(pool, query, as_of, scope, type_filter, limit)
-    vector = _stream_vector(pool, query, as_of, scope, type_filter, limit)
+    structured = _stream_structured(pool, query, as_of, scope, type_filter, limit, include_excluded)
+    fts = _stream_fts(pool, query, as_of, scope, type_filter, limit, include_excluded)
+    vector = _stream_vector(pool, query, as_of, scope, type_filter, limit, include_excluded)
 
     stream_counts = {
         "structured": len(structured),
@@ -1898,7 +2075,7 @@ def memory_search(
     )
 
     # -- Stream 4: Temporal expansion --
-    temporal = _stream_temporal_expand(pool, merged, as_of, scope, limit)
+    temporal = _stream_temporal_expand(pool, merged, as_of, scope, limit, include_excluded)
     stream_counts["temporal"] = len(temporal)
 
     # Fuse temporal into merged
@@ -1915,7 +2092,7 @@ def memory_search(
             )
 
     if graph_enabled:
-        graph = _stream_graph_path(pool, merged, as_of, scope, type_filter, limit)
+        graph = _stream_graph_path(pool, merged, as_of, scope, type_filter, limit, include_excluded)
         stream_counts["graph"] = len(graph)
         for rank, cand in enumerate(graph, start=1):
             rrf_score = weights["graph"] * (1.0 / (RRF_K + rank))
@@ -1966,6 +2143,10 @@ def memory_search(
             ],
             "why": c.why if explain_paths else [],
             "scope_path": c.scope_path,
+            "namespace": c.namespace,
+            "governance_status": c.governance_status,
+            "token_count": c.token_count,
+            "trust_class": c.trust_class,
         })
 
     return {

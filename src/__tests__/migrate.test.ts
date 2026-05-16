@@ -28,6 +28,7 @@ describe("migration plan", () => {
       "019_multimodal_ingest_anchor.sql",
       "020_embedding_index_roles.sql",
       "021_enterprise_lifecycle.sql",
+      "022_memory_governance.sql",
     ]);
   });
 
@@ -168,6 +169,18 @@ describe("migration plan", () => {
     expect(markerSqlForMigration("021_enterprise_lifecycle.sql")).not.toContain(
       "'preserve.lifecycle_outbox'::regclass",
     );
+  });
+
+  test("memory governance marker checks additive governance schema", () => {
+    const marker = markerSqlForMigration("022_memory_governance.sql");
+    expect(marker).toContain("memory_lifecycle_outbox");
+    expect(marker).toContain("memory_context_audit");
+    expect(marker).toContain("memory_feedback_event");
+    expect(marker).toContain("memory_quality_audit");
+    expect(marker).toContain("idx_memory_tenant_memory_id");
+    expect(marker).toContain("idx_memory_lifecycle_outbox_idempotency");
+    expect(marker).toContain("to_regclass('preserve.memory_edge')");
+    expect(marker).not.toContain("'preserve.memory_edge'::regclass");
   });
 
   test("migration checksums are stable sha256 strings", () => {

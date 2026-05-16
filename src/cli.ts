@@ -207,8 +207,18 @@ function printMemoryAdminUsage(): void {
   console.log("Subcommands:");
   console.log("  status-set --target-kind <kind> --target-id <uuid> --status <status> --reason <text>");
   console.log("  feedback-record --target-kind <kind> --target-id <uuid> --signal <signal>");
+  console.log("  event --enqueue --event-id <id> --event-type <type> --source-service <name> [--summary <text>]");
+  console.log("  event --process [--limit <n>]");
+  console.log("  event --prune [--before <iso-date>]");
+  console.log("  recall --trigger <name> [--goal <text>] [--cue <text>] [--max-tokens <n>] [--mode shadow|eval|default_on|off]");
+  console.log("  read --memory-id <id> [--max-tokens <n>]");
+  console.log("  status --memory-id <id> --set <status> [--reason <text>]");
+  console.log("  feedback --memory-id <id> --signal <signal> [--outcome <text>]");
+  console.log("  compact [--stale-before <iso-date>] [--min-quality <n>]");
+  console.log("  conflicts --detect [--limit <n>]");
+  console.log("  source --memory-id <id>");
   console.log("");
-  console.log("This surface updates lifecycle intelligence, feedback, score audit, and audit log tables only.");
+  console.log("This surface updates lifecycle intelligence, governed memory recall, feedback, score audit, and audit log tables.");
 }
 
 function printContextUsage(): void {
@@ -917,44 +927,45 @@ const commands: Record<string, () => Promise<void>> = {
       return;
     }
 
-    const targetKind = getFlag("target-kind");
-    const targetId = getFlag("target-id");
     const { sql, testConnection } = await import("./db");
-    const { setLifecycleStatus, recordLifecycleFeedback } = await import("./lifecycle/operations");
-    const { isFeedbackSignal, isLifecycleStatus, isTargetKind } = await import("./lifecycle/types");
-
     console.log("\n=== BrainCore Memory Admin ===\n");
     const connected = await testConnection();
     if (!connected) { process.exit(1); }
-    if (!targetKind || !targetId || !isTargetKind(targetKind)) {
-      console.error("--target-kind and --target-id are required.");
-      await sql.end();
-      process.exit(1);
-    }
 
-    if (subcommand === "status-set") {
-      const status = getFlag("status");
-      const reason = getFlag("reason");
-      if (!status || !isLifecycleStatus(status) || !reason) {
-        console.error("Usage: braincore memory status-set --target-kind <kind> --target-id <uuid> --status <status> --reason <text>");
+    if (subcommand === "status-set" || subcommand === "feedback-record") {
+      const targetKind = getFlag("target-kind");
+      const targetId = getFlag("target-id");
+      const { setLifecycleStatus, recordLifecycleFeedback } = await import("./lifecycle/operations");
+      const { isFeedbackSignal, isLifecycleStatus, isTargetKind } = await import("./lifecycle/types");
+
+      if (!targetKind || !targetId || !isTargetKind(targetKind)) {
+        console.error("--target-kind and --target-id are required.");
         await sql.end();
         process.exit(1);
       }
-      const result = await setLifecycleStatus(sql, {
-        targetKind,
-        targetId,
-        status,
-        reason,
-        actorType: getFlag("actor-type") ?? "admin",
-        actorId: getFlag("actor-id") ?? null,
-      });
-      console.log(`  Lifecycle status: ${result.lifecycleStatus}`);
-      console.log(`  Lock version: ${result.lockVersion}`);
-      await sql.end();
-      return;
-    }
 
-    if (subcommand === "feedback-record") {
+      if (subcommand === "status-set") {
+        const status = getFlag("status");
+        const reason = getFlag("reason");
+        if (!status || !isLifecycleStatus(status) || !reason) {
+          console.error("Usage: braincore memory status-set --target-kind <kind> --target-id <uuid> --status <status> --reason <text>");
+          await sql.end();
+          process.exit(1);
+        }
+        const result = await setLifecycleStatus(sql, {
+          targetKind,
+          targetId,
+          status,
+          reason,
+          actorType: getFlag("actor-type") ?? "admin",
+          actorId: getFlag("actor-id") ?? null,
+        });
+        console.log(`  Lifecycle status: ${result.lifecycleStatus}`);
+        console.log(`  Lock version: ${result.lockVersion}`);
+        await sql.end();
+        return;
+      }
+
       const signal = getFlag("signal");
       if (!signal || !isFeedbackSignal(signal)) {
         console.error("Usage: braincore memory feedback-record --target-kind <kind> --target-id <uuid> --signal <signal>");
@@ -979,10 +990,172 @@ const commands: Record<string, () => Promise<void>> = {
       return;
     }
 
-    console.error(`Unknown memory subcommand: ${subcommand}`);
-    printMemoryAdminUsage();
-    await sql.end();
-    process.exit(1);
+    const {
+      compactMemoryGovernance,
+      detectMemoryConflicts,
+      getMemorySourceAttribution,
+      processLifecycleEvents,
+      pruneLifecycleOutbox,
+      readForPrompt,
+      recallForContext,
+      recordLifecycleEvent,
+      recordMemoryFeedback,
+      setMemoryGovernanceStatus,
+    } = await import("./memory/governance");
+
+    try {
+      if (subcommand === "event" && hasFlag("enqueue")) {
+        const eventId = getFlag("event-id");
+        const eventType = getFlag("event-type");
+        const sourceService = getFlag("source-service");
+        if (!eventId || !eventType || !sourceService) {
+          console.error("Usage: braincore memory event --enqueue --event-id <id> --event-type <type> --source-service <name> [--summary <text>]");
+          process.exit(1);
+        }
+        await recordLifecycleEvent(sql, {
+          eventId,
+          eventType,
+          sourceService,
+          payload: {
+            summary: getFlag("summary"),
+            goal: getFlag("goal"),
+            action: getFlag("action"),
+            toolName: getFlag("tool-name"),
+          },
+          actorType: getFlag("actor-type"),
+          actorId: getFlag("actor-id"),
+          episodeId: getFlag("episode-id"),
+          projectEntityId: getFlag("project-entity-id"),
+        });
+        console.log(`Queued lifecycle event: ${eventId}`);
+        return;
+      }
+
+      if (subcommand === "event" && hasFlag("process")) {
+        const limit = Number(getFlag("limit") ?? "10");
+        const result = await processLifecycleEvents(sql, Number.isFinite(limit) ? limit : 10);
+        console.log(`Processed lifecycle events: ${result.processed}`);
+        for (const memoryId of result.memoryIds) console.log(`  ${memoryId}`);
+        return;
+      }
+
+      if (subcommand === "event" && hasFlag("prune")) {
+        const before = getFlag("before");
+        const pruned = await pruneLifecycleOutbox(sql, before ? new Date(before) : undefined);
+        console.log(`Pruned lifecycle outbox rows: ${pruned}`);
+        return;
+      }
+
+      if (subcommand === "recall") {
+        const maxTokens = Number(getFlag("max-tokens") ?? "800");
+        const result = await recallForContext(sql, {
+          trigger: getFlag("trigger") ?? "memory_protocol",
+          goal: getFlag("goal"),
+          actionType: getFlag("action-type"),
+          cues: getFlag("cue") ? [getFlag("cue")!] : undefined,
+          maxTokens: Number.isFinite(maxTokens) ? maxTokens : 800,
+          injectionMode: (getFlag("mode") as import("./memory/governance").ContextInjectionMode | undefined) ?? "shadow",
+          relevanceReason: getFlag("reason"),
+          actor: getFlag("actor") ?? "braincore-cli",
+          route: "braincore memory recall",
+          requestId: getFlag("request-id"),
+          scope: getFlag("scope"),
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (subcommand === "read") {
+        const memoryId = getFlag("memory-id");
+        if (!memoryId) {
+          console.error("Usage: braincore memory read --memory-id <id> [--max-tokens <n>]");
+          process.exit(1);
+        }
+        const maxTokens = Number(getFlag("max-tokens") ?? "800");
+        const result = await readForPrompt(sql, memoryId, {
+          maxTokens: Number.isFinite(maxTokens) ? maxTokens : 800,
+          relevanceReason: getFlag("reason"),
+          actor: getFlag("actor") ?? "braincore-cli",
+          route: "braincore memory read",
+          requestId: getFlag("request-id"),
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (subcommand === "status") {
+        const memoryId = getFlag("memory-id");
+        const status = getFlag("set") as import("./memory/governance").MemoryGovernanceStatus | undefined;
+        if (!memoryId || !status) {
+          console.error("Usage: braincore memory status --memory-id <id> --set <status> [--reason <text>]");
+          process.exit(1);
+        }
+        await setMemoryGovernanceStatus(sql, memoryId, status, {
+          reason: getFlag("reason"),
+          actorType: getFlag("actor-type"),
+          actorId: getFlag("actor-id"),
+        });
+        console.log(`Updated memory governance status: ${memoryId} -> ${status}`);
+        return;
+      }
+
+      if (subcommand === "feedback") {
+        const memoryId = getFlag("memory-id");
+        const signal = getFlag("signal");
+        if (!memoryId || !signal) {
+          console.error("Usage: braincore memory feedback --memory-id <id> --signal <signal> [--outcome <text>]");
+          process.exit(1);
+        }
+        const recorded = await recordMemoryFeedback(sql, {
+          memoryId,
+          signal,
+          outcome: getFlag("outcome"),
+          actorType: getFlag("actor-type"),
+          actorId: getFlag("actor-id"),
+        });
+        if (!recorded) {
+          console.error("Memory feedback target was not found for the active tenant.");
+          process.exit(1);
+        }
+        console.log(`Recorded memory feedback: ${memoryId} ${signal}`);
+        return;
+      }
+
+      if (subcommand === "compact") {
+        const minQuality = Number(getFlag("min-quality") ?? "0.3");
+        const staleBefore = getFlag("stale-before");
+        const result = await compactMemoryGovernance(sql, {
+          minQuality: Number.isFinite(minQuality) ? minQuality : 0.3,
+          staleBefore: staleBefore ? new Date(staleBefore) : undefined,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (subcommand === "conflicts" && hasFlag("detect")) {
+        const limit = Number(getFlag("limit") ?? "25");
+        const result = await detectMemoryConflicts(sql, { limit: Number.isFinite(limit) ? limit : 25 });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (subcommand === "source") {
+        const memoryId = getFlag("memory-id");
+        if (!memoryId) {
+          console.error("Usage: braincore memory source --memory-id <id>");
+          process.exit(1);
+        }
+        const result = await getMemorySourceAttribution(sql, memoryId);
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.error(`Unknown memory subcommand: ${subcommand}`);
+      printMemoryAdminUsage();
+      process.exit(1);
+    } finally {
+      await sql.end();
+    }
   },
 
   context: async () => {

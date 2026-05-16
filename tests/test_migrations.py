@@ -101,8 +101,8 @@ def test_eval_run_table_exists():
         cur.execute("SELECT 1 FROM preserve.eval_run LIMIT 0")  # raises if missing
 
 
-def test_forty_five_preserve_tables_exist():
-    # Fresh installs now get the full 45-table preserve schema directly
+def test_fifty_preserve_tables_exist():
+    # Fresh installs now get the full 50-table preserve schema directly
     # from the base schema, eval migrations, tenant-isolation migration,
     # memory graph migration, and runtime migration ledger bootstrap.
     # Example project seeds remain opt-in and are no longer part of the
@@ -110,7 +110,7 @@ def test_forty_five_preserve_tables_exist():
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM pg_tables WHERE schemaname='preserve'")
         count = cur.fetchone()[0]
-    assert count == 45, f"expected 45 preserve tables, found {count}"
+    assert count == 50, f"expected 50 preserve tables, found {count}"
 
 
 def test_project_service_map_table_exists():

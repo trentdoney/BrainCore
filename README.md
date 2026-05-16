@@ -138,7 +138,7 @@ psql "$BRAINCORE_POSTGRES_DSN" \
   -c "SELECT count(*) FROM pg_tables WHERE schemaname='preserve';"
 ```
 
-Expected result on a fresh clone: `45-table preserve schema`.
+Expected result on a fresh clone: `50-table preserve schema`.
 
 ### 4. Run the smoke benchmark
 
@@ -366,7 +366,7 @@ for row in result["results"]:
 
 ## Knowledge Graph
 
-The open-source repo ships a `45-table preserve schema`. The tables are
+The open-source repo ships a `50-table preserve schema`. The tables are
 split by lifecycle rather than by document format.
 
 | Table | Purpose |
