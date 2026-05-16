@@ -298,6 +298,7 @@ def memory_search_tool(
     scope: Optional[str] = None,
     include_graph: bool = False,
     explain_paths: bool = False,
+    include_excluded: bool = False,
 ) -> dict[str, Any]:
     """Hybrid retrieval (SQL + FTS + vector + temporal, optional graph, fused with RRF) over the preserve schema. Returns facts, memories, segments, and episodes.
 
@@ -313,6 +314,8 @@ def memory_search_tool(
         include_graph: Enables the feature-flagged graph-path stream.
         explain_paths: Includes path explanations when graph or expansion
             candidates supply them.
+        include_excluded: Operator-only override to include archived, quarantined,
+            suppressed, retired, or retired-superseded memories.
 
     Returns:
         A JSON-serializable dict with three keys:
@@ -335,6 +338,7 @@ def memory_search_tool(
         scope=scope,
         include_graph=include_graph,
         explain_paths=explain_paths,
+        include_excluded=include_excluded,
     )
 
     pool = _get_pool()
@@ -347,6 +351,7 @@ def memory_search_tool(
         limit=request.limit,
         include_graph=request.include_graph,
         explain_paths=request.explain_paths,
+        include_excluded=request.include_excluded,
     )
 
     # Round-trip through the response model for shape validation and to
