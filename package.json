@@ -12,7 +12,8 @@
     "braincore": "bun run src/cli.ts",
     "lint": "tsc --noEmit",
     "test": "bun test",
-    "sanitize:check": "bash scripts/pre-push-gate.sh"
+    "sanitize:check": "bash scripts/pre-push-gate.sh",
+    "memory-policy:check": "bash scripts/memory-policy-gate.sh"
   },
   "dependencies": {
     "postgres": "^3.4.5",

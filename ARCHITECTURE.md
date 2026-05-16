@@ -211,7 +211,7 @@ strategy:
 
 ## Schema Walkthrough
 
-The public release ships a 45-table open-source preserve schema.
+The public release ships a 50-table open-source preserve schema.
 
 | Table | Role | Notes |
 |---|---|---|

@@ -35,6 +35,8 @@ from .embedder import embed_query
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+EXCLUDED_MEMORY_GOVERNANCE_STATUSES = ("archived", "quarantined", "suppressed", "retired")
+EXCLUDED_MEMORY_TRUST_CLASSES = ("retired_superseded",)
 
 # Tenant scoping — one process per tenant, exact tenant match only.
 TENANT = os.environ.get("BRAINCORE_TENANT", "default")
@@ -420,6 +422,10 @@ class _Candidate:
     valid_to: Optional[str] = None
     scope_path: Optional[str] = None
     priority: Optional[int] = None
+    namespace: Optional[str] = None
+    governance_status: Optional[str] = None
+    token_count: Optional[int] = None
+    trust_class: Optional[str] = None
     evidence: list[dict] = field(default_factory=list)
     why: list[dict] = field(default_factory=list)
 
@@ -665,6 +671,21 @@ def _timeline_entries_from_rows(rows, include_evidence: bool) -> list[dict]:
     return entries
 
 
+def _memory_governance_clause(include_excluded: bool, prefix: str = "") -> tuple[str, list]:
+    """Build the prompt-safety filter for preserve.memory rows."""
+    if include_excluded:
+        return "", []
+    col = f"{prefix}governance_status"
+    trust_col = f"{prefix}trust_class"
+    status_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_GOVERNANCE_STATUSES))
+    trust_placeholders = ", ".join(["%s"] * len(EXCLUDED_MEMORY_TRUST_CLASSES))
+    return (
+        f" AND {col} NOT IN ({status_placeholders}) AND {trust_col} NOT IN ({trust_placeholders})",
+        list(EXCLUDED_MEMORY_GOVERNANCE_STATUSES) + list(EXCLUDED_MEMORY_TRUST_CLASSES),
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Stream 1: Structured SQL — entity name match -> facts
 # ---------------------------------------------------------------------------
@@ -760,6 +781,7 @@ def _stream_fts(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """FTS across fact, memory, segment, episode using plainto_tsquery."""
     candidates: list[_Candidate] = []
@@ -815,6 +837,7 @@ def _stream_fts(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
+                governance_sql, governance_params = _memory_governance_clause(include_excluded, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -824,12 +847,17 @@ def _stream_fts(
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
                         m.priority,
+                        m.namespace::text AS namespace,
+                        m.governance_status::text AS governance_status,
+                        m.trust_class::text AS trust_class,
+                        m.token_count,
                         ts_rank_cd(m.fts, plainto_tsquery('english', %s)) AS rank
                     FROM preserve.memory m
                     WHERE m.fts @@ plainto_tsquery('english', %s)
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY rank DESC
                     LIMIT %s
                 """
@@ -838,6 +866,7 @@ def _stream_fts(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [sub_limit]
                 )
                 cur.execute(sql, params)
@@ -850,6 +879,10 @@ def _stream_fts(
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
                         priority=r.get("priority"),
+                        namespace=r.get("namespace"),
+                        governance_status=r.get("governance_status"),
+                        token_count=r.get("token_count"),
+                        trust_class=r.get("trust_class"),
                     ))
 
             # -- segment FTS --
@@ -1216,6 +1249,7 @@ def _stream_vector(
     scope: Optional[str],
     type_filter: Optional[str],
     limit: int,
+    include_excluded: bool = False,
 ) -> list[_Candidate]:
     """Embed query, then cosine-similarity search across all 4 tables."""
     if EMBEDDING_INDEX_RETRIEVAL_ENABLED:
@@ -1279,6 +1313,7 @@ def _stream_vector(
                 as_of_sql, as_of_params = _as_of_clause(as_of, "m.")
                 scope_sql, scope_params = _scope_clause(scope, "m.")
                 tenant_sql, tenant_params = _tenant_clause(TENANT, "m.")
+                governance_sql, governance_params = _memory_governance_clause(include_excluded, "m.")
                 sql = f"""
                     SELECT
                         m.memory_id::text AS object_id,
@@ -1288,12 +1323,17 @@ def _stream_vector(
                         m.confidence::float,
                         m.valid_from, m.valid_to, m.scope_path,
                         m.priority,
+                        m.namespace::text AS namespace,
+                        m.governance_status::text AS governance_status,
+                        m.trust_class::text AS trust_class,
+                        m.token_count,
                         1 - (m.embedding <=> %s::vector) AS cosine_sim
                     FROM preserve.memory m
                     WHERE m.embedding IS NOT NULL
                       {as_of_sql}
                       {scope_sql}
                       {tenant_sql}
+                      {governance_sql}
                     ORDER BY m.embedding <=> %s::vector
                     LIMIT %s
                 """
@@ -1302,6 +1342,7 @@ def _stream_vector(
                     + as_of_params
                     + scope_params
                     + tenant_params
+                    + governance_params
                     + [emb_str, sub_limit]
                 )
                 cur.execute(sql, params)
@@ -1314,6 +1355,10 @@ def _stream_vector(
                         valid_to=_ts_str(r["valid_to"]),
                         scope_path=r["scope_path"],
                         priority=r.get("priority"),
+                        namespace=r.get("namespace"),
+                        governance_status=r.get("governance_status"),
+                        token_count=r.get("token_count"),
+                        trust_class=r.get("trust_class"),
                     ))
 
             # -- segment vector --
@@ -1855,6 +1900,7 @@ def memory_search(
     limit: int = 10,
     include_graph: bool = False,
     explain_paths: bool = False,
+    include_excluded: bool = False,
 ) -> dict:
     """Hybrid search across the preserve schema.
 
@@ -1866,8 +1912,8 @@ def memory_search(
 
     # -- Run streams 1-3 --
     structured = _stream_structured(pool, query, as_of, scope, type_filter, limit)
-    fts = _stream_fts(pool, query, as_of, scope, type_filter, limit)
-    vector = _stream_vector(pool, query, as_of, scope, type_filter, limit)
+    fts = _stream_fts(pool, query, as_of, scope, type_filter, limit, include_excluded)
+    vector = _stream_vector(pool, query, as_of, scope, type_filter, limit, include_excluded)
 
     stream_counts = {
         "structured": len(structured),
@@ -1966,6 +2012,10 @@ def memory_search(
             ],
             "why": c.why if explain_paths else [],
             "scope_path": c.scope_path,
+            "namespace": c.namespace,
+            "governance_status": c.governance_status,
+            "token_count": c.token_count,
+            "trust_class": c.trust_class,
         })
 
     return {

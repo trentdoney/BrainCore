@@ -26,6 +26,7 @@ export const MIGRATION_FILES = [
   "019_multimodal_ingest_anchor.sql",
   "020_embedding_index_roles.sql",
   "021_enterprise_lifecycle.sql",
+  "022_memory_governance.sql",
 ] as const;
 
 type Step =
@@ -381,6 +382,77 @@ export function markerSqlForMigration(label: string): string | null {
               AND table_name = 'lifecycle_target_intelligence'
               AND column_name = 'lock_version'
           ) AS applied
+      `;
+    case "022_memory_governance.sql":
+      return `
+        WITH required_columns(table_name, column_name) AS (
+          VALUES
+            ('memory', 'namespace'),
+            ('memory', 'governance_status'),
+            ('memory', 'source_class'),
+            ('memory', 'trust_class'),
+            ('memory', 'quality_score'),
+            ('memory', 'salience'),
+            ('memory', 'strength'),
+            ('memory', 'stability'),
+            ('memory', 'token_count'),
+            ('memory_lifecycle_outbox', 'idempotency_key'),
+            ('memory_lifecycle_outbox', 'payload'),
+            ('memory_lifecycle_outbox', 'evidence_refs'),
+            ('memory_lifecycle_outbox', 'memory_id'),
+            ('memory_cue', 'cue_hash'),
+            ('memory_cue', 'cue_type'),
+            ('memory_context_audit', 'retrieved_memory_ids'),
+            ('memory_context_audit', 'injected_memory_ids'),
+            ('memory_context_audit', 'prompt_package'),
+            ('memory_feedback_event', 'signal'),
+            ('memory_quality_audit', 'trigger_type'),
+            ('memory_quality_audit', 'new_quality_score')
+        ), present_columns AS (
+          SELECT c.table_name, c.column_name
+          FROM information_schema.columns c
+          JOIN required_columns r
+            ON r.table_name = c.table_name
+           AND r.column_name = c.column_name
+          WHERE c.table_schema = 'preserve'
+        ), required_tables(table_name) AS (
+          VALUES
+            ('memory_lifecycle_outbox'),
+            ('memory_cue'),
+            ('memory_context_audit'),
+            ('memory_feedback_event'),
+            ('memory_quality_audit')
+        ), present_tables AS (
+          SELECT t.table_name
+          FROM information_schema.tables t
+          JOIN required_tables r ON r.table_name = t.table_name
+          WHERE t.table_schema = 'preserve'
+        ), required_indexes(table_name, indexname) AS (
+          VALUES
+            ('memory', 'idx_memory_tenant_memory_id'),
+            ('memory_lifecycle_outbox', 'idx_memory_lifecycle_outbox_idempotency'),
+            ('memory_lifecycle_outbox', 'idx_memory_lifecycle_outbox_event'),
+            ('memory_context_audit', 'idx_memory_context_audit_tenant_created'),
+            ('memory_feedback_event', 'idx_memory_feedback_event_tenant_created'),
+            ('memory_quality_audit', 'idx_memory_quality_audit_memory')
+        ), present_indexes AS (
+          SELECT i.tablename AS table_name, i.indexname
+          FROM pg_indexes i
+          JOIN required_indexes r
+            ON r.table_name = i.tablename
+           AND r.indexname = i.indexname
+          WHERE i.schemaname = 'preserve'
+        )
+        SELECT
+          to_regtype('preserve.memory_namespace') IS NOT NULL
+          AND to_regtype('preserve.memory_governance_status') IS NOT NULL
+          AND to_regtype('preserve.memory_source_class') IS NOT NULL
+          AND to_regtype('preserve.memory_trust_class') IS NOT NULL
+          AND to_regtype('preserve.memory_outbox_status') IS NOT NULL
+          AND to_regclass('preserve.memory_edge') IS NOT NULL
+          AND (SELECT count(*) FROM present_columns) = (SELECT count(*) FROM required_columns)
+          AND (SELECT count(*) FROM present_tables) = (SELECT count(*) FROM required_tables)
+          AND (SELECT count(*) FROM present_indexes) = (SELECT count(*) FROM required_indexes) AS applied
       `;
     default:
       return null;
