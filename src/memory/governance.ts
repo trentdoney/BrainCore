@@ -665,7 +665,7 @@ export async function recallForContext(sql: postgres.Sql, request: ContextRecall
   const mode = request.injectionMode ?? 'shadow';
   const maxTokens = request.maxTokens ?? 800;
   const query = contextQueryText(request);
-  const candidateResults = await searchForPrompt(sql, { ...request, tenant, includeExcluded: true, limit: request.limit ?? 20 });
+  const candidateResults = await searchForPrompt(sql, { ...request, tenant, includeExcluded: request.includeExcluded ?? false, limit: request.limit ?? 20 });
   const budgetedResults = applyResultBudget(candidateResults.filter(isRecallEligible), maxTokens, request.relevanceReason ?? `context:${request.trigger}`);
   const promptPackage = packageMemoriesForPrompt(budgetedResults, mode, maxTokens);
   const packageIds = new Set(promptPackage.map((item) => item.memoryId));
@@ -767,6 +767,7 @@ export async function detectMemoryConflicts(sql: postgres.Sql, options: MemoryCo
     LIMIT ${limit}
   `;
   const edgeIds: string[] = [];
+  const newConflictMemoryIds: string[] = [];
   for (const row of rows) {
     const edgeFingerprint = sha256(`${tenant}|memory|${row.from_memory_id}|contradicts|memory|${row.to_memory_id}`);
     const [edge] = await sql`
@@ -777,15 +778,16 @@ export async function detectMemoryConflicts(sql: postgres.Sql, options: MemoryCo
         ${tenant}, 'memory', ${row.from_memory_id}, 'memory', ${row.to_memory_id},
         'contradicts', ${edgeFingerprint}, 0.6, 'deterministic'::preserve.assertion_class, ${row.scope_path ?? null}
       )
-      ON CONFLICT (tenant, edge_fingerprint) DO UPDATE SET
-        confidence = GREATEST(preserve.memory_edge.confidence, EXCLUDED.confidence),
-        updated_at = now()
-      RETURNING edge_id::text
+      ON CONFLICT (tenant, edge_fingerprint) DO NOTHING
+      RETURNING edge_id::text, source_id::text, target_id::text
     `;
-    if (edge?.edge_id) edgeIds.push(edge.edge_id);
+    if (edge?.edge_id) {
+      edgeIds.push(edge.edge_id);
+      newConflictMemoryIds.push(edge.source_id, edge.target_id);
+    }
   }
-  if (rows.length > 0) {
-    const memoryIds = [...new Set(rows.flatMap((row: any) => [row.from_memory_id, row.to_memory_id]))];
+  if (newConflictMemoryIds.length > 0) {
+    const memoryIds = [...new Set(newConflictMemoryIds)];
     await sql`
       UPDATE preserve.memory m
       SET contradiction_count = contradiction_count + 1,

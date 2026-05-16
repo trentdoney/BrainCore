@@ -16,6 +16,8 @@ import {
   recordLifecycleEvent,
   recordMemoryFeedback,
   recordQualityAudit,
+  recallForContext,
+  detectMemoryConflicts,
   searchForPrompt,
   scoreFreshness,
   scoreMemoryConfidence,
@@ -168,6 +170,53 @@ describe("memory governance helpers", () => {
     expect(calls[0].values).toContain(true);
   });
 
+  test("recall defaults apply governance filtering before SQL limit", async () => {
+    const memoryId = "33333333-3333-3333-3333-333333333333";
+    const calls: Array<{ query: string; values: unknown[] }> = [];
+    const fakeSql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = strings.join("?");
+      calls.push({ query, values });
+      if (query.includes("SELECT") && query.includes("m.memory_id::text,")) {
+        return Promise.resolve([{
+          memory_id: memoryId,
+          memory_type: "heuristic",
+          title: "Governance filter",
+          narrative: "Eligible memory after SQL filtering.",
+          confidence: 0.9,
+          scope_path: "project:braincore",
+          priority: 1,
+          namespace: "semantic",
+          governance_status: "active",
+          source_class: "observed",
+          trust_class: "deterministic",
+          quality_score: 0.9,
+          strength: 0.8,
+          token_count: 8,
+          text_rank: 1,
+        }]);
+      }
+      if (query.includes("SELECT memory_id::text")) {
+        return Promise.resolve([{ memory_id: memoryId }]);
+      }
+      return Promise.resolve([]);
+    }) as any;
+    fakeSql.json = (value: unknown) => value;
+
+    const result = await recallForContext(fakeSql, {
+      trigger: "manual",
+      goal: "memory governance",
+      injectionMode: "default_on",
+      limit: 1,
+      maxTokens: 20,
+    });
+
+    const searchCall = calls.find((call) => call.query.includes("m.governance_status NOT IN"));
+    expect(searchCall).toBeDefined();
+    expect(searchCall?.values).toContain(false);
+    expect(searchCall?.values).not.toContain(true);
+    expect(result.results.map((item) => item.memoryId)).toEqual([memoryId]);
+  });
+
   test("scores freshness and confidence with support and contradictions", () => {
     const now = new Date("2026-05-16T00:00:00Z");
     expect(scoreFreshness(now, now)).toBe(1);
@@ -278,6 +327,42 @@ describe("memory governance database guards", () => {
       expect(JSON.stringify(audit.prompt_package)).not.toContain("abc123token456def789ghi012jkl345");
       expect(JSON.stringify(audit.prompt_package)).not.toContain("wrong tenant content");
     } finally {
+      await sql.end({ timeout: 1 });
+    }
+  });
+
+  databaseTest("conflict detection does not inflate counters on existing edges", async () => {
+    const dsn = process.env.BRAINCORE_TEST_DSN!;
+    const sql = postgres(dsn, { max: 1 });
+    const tenant = `tenant-conflict-${randomUUID()}`;
+    try {
+      const [memoryA] = await sql`
+        INSERT INTO preserve.memory (tenant, fingerprint, title, narrative, governance_status, trust_class, contradiction_count)
+        VALUES (${tenant}, ${`conflict-a-${randomUUID()}`}, 'Same title', 'first narrative', 'active'::preserve.memory_governance_status, 'deterministic'::preserve.memory_trust_class, 0)
+        RETURNING memory_id::text
+      `;
+      const [memoryB] = await sql`
+        INSERT INTO preserve.memory (tenant, fingerprint, title, narrative, governance_status, trust_class, contradiction_count)
+        VALUES (${tenant}, ${`conflict-b-${randomUUID()}`}, 'Same title', 'second narrative', 'active'::preserve.memory_governance_status, 'deterministic'::preserve.memory_trust_class, 0)
+        RETURNING memory_id::text
+      `;
+
+      const first = await detectMemoryConflicts(sql, { tenant, limit: 10 });
+      const second = await detectMemoryConflicts(sql, { tenant, limit: 10 });
+
+      const counts = await sql`
+        SELECT memory_id::text, contradiction_count
+        FROM preserve.memory
+        WHERE memory_id IN (${memoryA.memory_id}, ${memoryB.memory_id})
+        ORDER BY memory_id
+      `;
+
+      expect(first.edgeIds).toHaveLength(1);
+      expect(second.edgeIds).toHaveLength(0);
+      expect(counts.map((row: any) => row.contradiction_count)).toEqual([1, 1]);
+    } finally {
+      await sql`DELETE FROM preserve.memory_edge WHERE tenant = ${tenant}`;
+      await sql`DELETE FROM preserve.memory WHERE tenant = ${tenant}`;
       await sql.end({ timeout: 1 });
     }
   });
