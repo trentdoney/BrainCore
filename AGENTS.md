@@ -53,6 +53,29 @@ customers may inspect:
 8. Never commit generated image prompts or draft visual instructions into the
    public repo.
 
+## Dependabot Hard Rule
+
+Never merge a Dependabot-authored PR in this repository.
+
+This is a standing hard stop. It applies even if the user says "merge all PRs",
+"approved", "proceed", "finish the PRs", or similar broad approval language.
+Dependabot PRs are read-only dependency proposals only.
+
+Required handling:
+
+1. Inspect Dependabot PRs only as evidence of requested dependency changes.
+2. If a dependency update is accepted, create an organization-owned curated
+   branch from current `main` and apply the dependency change there.
+3. Run the full Gitea-first public release gate, security review, tests, and CI
+   on the curated branch/PR.
+4. Merge only the curated non-Dependabot PR after the gate passes.
+5. Close the Dependabot PR as superseded, deferred, or rejected with the reason
+   documented in the incident/release notes.
+
+If any open PR list includes `app/dependabot`, do not treat "all PRs" as a
+merge instruction for those PRs. Stop that part of the workflow and report that
+Dependabot PRs must be superseded by a curated branch instead.
+
 ## Human-readable boundaries
 
 - The example MCP server is a reference implementation only.
