@@ -4,6 +4,16 @@ All notable changes to BrainCore are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added additive memory governance migration `022_memory_governance.sql` with prompt recall, feedback, quality audit, context audit, lifecycle outbox, cue, compaction, and source attribution support.
+- Added governed memory CLI commands for event ingestion, recall/read auditing, status updates, feedback, compaction, conflict detection, and source attribution.
+- Added memory governance policy checks to CI and local sanitization coverage.
+
+### Fixed
+- Governed prompt search now excludes archived, quarantined, suppressed, retired, and retired-superseded memories by default while preserving an explicit operator inspection override.
+- Governed MCP search now applies the same default exclusion to facts, segments, and episodes connected to excluded memories.
+- Governance conflict detection now writes to BrainCore's existing typed memory graph schema on the public repository line.
+
 ### Changed
 - Added repository CODEOWNERS for `@trentdoney` and `@SynapseOpsAgent`.
 - Aligned the example MCP server with the repository-wide Python 3.11+
@@ -13,10 +23,12 @@ All notable changes to BrainCore are documented in this file.
   feedback, score audit, and audit log tables.
 - Added CLI and MCP-first lifecycle administration surfaces. The browser/admin
   web app remains a future upgrade path.
-- The open-source preserve schema is now documented as 45 tables after
-  migrations `001` through `021` plus the runtime migration ledger bootstrap.
+- The open-source preserve schema is now documented as 50 tables after
+  migrations `001` through `022` plus the runtime migration ledger bootstrap.
 - Lifecycle `suppressed` and `retired` overlays are enforced in retrieval and
   procedure search paths without mutating BrainCore native truth rows.
+- Memory governance metadata, lifecycle sensitivity/redaction values, and cue
+  scoring semantics are documented and validated at lifecycle ingestion.
 - Lifecycle rollback is documented as a development/test rollback only unless
   lifecycle audit/outbox data has first been exported.
 

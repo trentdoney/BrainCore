@@ -71,6 +71,13 @@ class MemorySearchRequest(BaseModel):
         description="Include graph/expansion path explanations when available",
     )
     limit: int = Field(default=10, ge=1, le=100)
+    include_excluded: bool = Field(
+        default=False,
+        description=(
+            "Operator-only inspection flag. Defaults to False so archived, quarantined, "
+            "suppressed, and retired memories are excluded from prompt retrieval."
+        ),
+    )
 
 
 class MemorySearchResult(BaseModel):
@@ -86,6 +93,10 @@ class MemorySearchResult(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     why: list[GraphPathItem] = Field(default_factory=list)
     scope_path: Optional[str] = None
+    namespace: Optional[str] = None
+    governance_status: Optional[str] = None
+    token_count: Optional[int] = None
+    trust_class: Optional[str] = None
 
 
 class MemorySearchResponse(BaseModel):
