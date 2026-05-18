@@ -215,6 +215,9 @@ function printMemoryAdminUsage(): void {
   console.log("  event --prune [--before <iso-date>]");
   console.log("  recall --trigger <name> [--goal <text>] [--cue <text>] [--max-tokens <n>] [--mode shadow|eval|default_on|off]");
   console.log("  assistant-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  assistant-review stats");
+  console.log("  assistant-review show --review-id <uuid> [--fact-limit <n>]");
+  console.log("  assistant-review export [--status pending] [--limit <n>]");
   console.log("  assistant-review approve --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review reject --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review suppress --review-id <uuid> [--notes <text>]");
@@ -249,6 +252,7 @@ function printSnapshotUsage(): void {
   console.log("  --max-tokens <n>        Recall budget (default 3000)");
   console.log("  --limit <n>             Result limit (default 20)");
   console.log("  --json                  Print structured result instead of markdown");
+  console.log("  snapshot eval --case-json <path> [--json]");
 }
 
 // Handle help flags explicitly BEFORE the commands[] dispatch so they never
@@ -965,6 +969,29 @@ const commands: Record<string, () => Promise<void>> = {
 
   snapshot: async () => {
     const subcommand = args[0];
+    if (subcommand === "eval") {
+      const caseJson = getFlag("case-json");
+      if (!caseJson) {
+        console.error("Usage: braincore snapshot eval --case-json <path> [--json]");
+        process.exit(1);
+      }
+      const { readFile } = await import("fs/promises");
+      const { sql, testConnection } = await import("./db");
+      const { runBrainCoreShadowEval } = await import("./memory/shadow-eval");
+      const connected = await testConnection();
+      if (!connected) { process.exit(1); }
+      try {
+        const cases = JSON.parse(await readFile(caseJson, "utf8"));
+        if (!Array.isArray(cases)) throw new Error("case-json must contain an array");
+        const result = await runBrainCoreShadowEval(sql, cases);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.passed && !hasFlag("no-fail")) process.exitCode = 1;
+      } finally {
+        await sql.end();
+      }
+      return;
+    }
+
     if (subcommand !== "build") {
       printSnapshotUsage();
       process.exit(subcommand && !isHelpArg(subcommand) ? 1 : 0);
@@ -1010,10 +1037,13 @@ const commands: Record<string, () => Promise<void>> = {
     if (subcommand === "assistant-review") {
       const action = args[1] ?? "list";
       const {
+        assistantMemoryReviewStats,
         demoteAssistantMemoryPromotion,
+        getAssistantMemoryReview,
         listAssistantMemoryReviews,
         promoteAssistantMemoryReview,
         rejectAssistantMemoryReview,
+        renderAssistantReviewQueueMarkdown,
       } = await import("./memory/assistant-review");
 
       if (action === "list") {
@@ -1023,6 +1053,38 @@ const commands: Record<string, () => Promise<void>> = {
           limit: Number.isFinite(limit) ? limit : 50,
         });
         console.log(JSON.stringify(rows, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "stats") {
+        const stats = await assistantMemoryReviewStats(sql);
+        console.log(JSON.stringify(stats, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "show") {
+        const reviewId = getFlag("review-id");
+        if (!reviewId) {
+          console.error("Usage: braincore memory assistant-review show --review-id <uuid> [--fact-limit <n>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const factLimit = Number(getFlag("fact-limit") ?? "20");
+        const detail = await getAssistantMemoryReview(sql, reviewId, { factLimit: Number.isFinite(factLimit) ? factLimit : 20 });
+        console.log(JSON.stringify(detail, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "export") {
+        const limit = Number(getFlag("limit") ?? "200");
+        const rows = await listAssistantMemoryReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : 200,
+        });
+        console.log(hasFlag("json") ? JSON.stringify(rows, null, 2) : renderAssistantReviewQueueMarkdown(rows));
         await sql.end();
         return;
       }

@@ -37,6 +37,17 @@ export interface AssistantReviewDemotionResult {
   demoted: boolean;
 }
 
+export interface AssistantReviewDetail extends AssistantReviewRow {
+  artifactId: string;
+  facts: Array<{ predicate: string; value: string; confidence?: number; factId: string }>;
+}
+
+export interface AssistantReviewStats {
+  total: number;
+  byStatus: Record<string, number>;
+  bySourceType: Record<string, number>;
+}
+
 export async function listAssistantMemoryReviews(
   sql: postgres.Sql,
   options: { tenant?: string; status?: string; limit?: number } = {},
@@ -79,6 +90,120 @@ export async function listAssistantMemoryReviews(
     factCount: Number(row.fact_count ?? 0),
     createdAt: row.created_at ?? undefined,
   }));
+}
+
+export async function getAssistantMemoryReview(
+  sql: postgres.Sql,
+  reviewId: string,
+  options: { tenant?: string; factLimit?: number } = {},
+): Promise<AssistantReviewDetail | null> {
+  const tenant = options.tenant ?? config.tenant;
+  const factLimit = Math.max(1, Math.min(50, options.factLimit ?? 20));
+  const [review] = await sql`
+    SELECT
+      rq.review_id::text,
+      rq.status::text,
+      rq.reason,
+      a.artifact_id::text,
+      a.source_type::text,
+      a.source_key,
+      a.scope_path,
+      a.original_path,
+      rq.created_at::text,
+      COUNT(f.fact_id)::int AS fact_count
+    FROM preserve.review_queue rq
+    JOIN preserve.artifact a ON a.artifact_id = rq.target_id
+    LEFT JOIN preserve.extraction_run er ON er.artifact_id = a.artifact_id
+    LEFT JOIN preserve.fact f ON f.created_run_id = er.run_id AND f.current_status = 'active'
+    WHERE rq.review_id = ${reviewId}
+      AND rq.target_type = 'artifact'
+      AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+      AND a.tenant = ${tenant}
+      AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
+    GROUP BY rq.review_id, rq.status, rq.reason, a.artifact_id, a.source_type, a.source_key, a.scope_path, a.original_path, rq.created_at
+    LIMIT 1
+  `;
+  if (!review) return null;
+  const facts = await sql`
+    SELECT
+      f.fact_id::text,
+      f.predicate,
+      f.object_value,
+      f.confidence::float
+    FROM preserve.extraction_run er
+    JOIN preserve.fact f ON f.created_run_id = er.run_id
+    WHERE er.artifact_id = ${review.artifact_id}
+      AND f.tenant = ${tenant}
+      AND f.current_status = 'active'
+    ORDER BY
+      CASE WHEN f.predicate IN ('vestige_memory_content','pai_auto_memory_content') THEN 0 ELSE 1 END,
+      f.priority ASC,
+      f.created_at ASC
+    LIMIT ${factLimit}
+  `;
+  return {
+    reviewId: review.review_id,
+    status: review.status,
+    reason: review.reason,
+    artifactId: review.artifact_id,
+    sourceType: review.source_type,
+    sourceKey: review.source_key,
+    scopePath: review.scope_path ?? undefined,
+    originalPath: review.original_path ?? undefined,
+    factCount: Number(review.fact_count ?? 0),
+    createdAt: review.created_at ?? undefined,
+    facts: facts.map((fact: any) => ({
+      factId: fact.fact_id,
+      predicate: fact.predicate,
+      value: objectValueText(fact.object_value),
+      confidence: fact.confidence === null || fact.confidence === undefined ? undefined : Number(fact.confidence),
+    })),
+  };
+}
+
+export async function assistantMemoryReviewStats(
+  sql: postgres.Sql,
+  options: { tenant?: string } = {},
+): Promise<AssistantReviewStats> {
+  const tenant = options.tenant ?? config.tenant;
+  const rows = await sql`
+    SELECT rq.status::text, a.source_type::text, COUNT(*)::int AS count
+    FROM preserve.review_queue rq
+    JOIN preserve.artifact a ON a.artifact_id = rq.target_id
+    WHERE rq.target_type = 'artifact'
+      AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+      AND a.tenant = ${tenant}
+      AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
+    GROUP BY rq.status, a.source_type
+    ORDER BY rq.status, a.source_type
+  `;
+  const stats: AssistantReviewStats = { total: 0, byStatus: {}, bySourceType: {} };
+  for (const row of rows as any[]) {
+    const count = Number(row.count ?? 0);
+    stats.total += count;
+    stats.byStatus[row.status] = (stats.byStatus[row.status] ?? 0) + count;
+    stats.bySourceType[row.source_type] = (stats.bySourceType[row.source_type] ?? 0) + count;
+  }
+  return stats;
+}
+
+export function renderAssistantReviewQueueMarkdown(rows: AssistantReviewRow[]): string {
+  const lines = [
+    '# BrainCore Assistant Memory Review Queue',
+    '',
+    `Rows: ${rows.length}`,
+    '',
+  ];
+  for (const row of rows) {
+    lines.push(`## ${row.sourceKey}`);
+    lines.push(`- Review ID: ${row.reviewId}`);
+    lines.push(`- Status: ${row.status}`);
+    lines.push(`- Source type: ${row.sourceType}`);
+    if (row.scopePath) lines.push(`- Scope: ${row.scopePath}`);
+    lines.push(`- Facts: ${row.factCount}`);
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd() + '\n';
 }
 
 export async function rejectAssistantMemoryReview(

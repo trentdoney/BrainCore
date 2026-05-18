@@ -3,9 +3,12 @@ process.env.BRAINCORE_POSTGRES_DSN ??= ["postgresql", "://", "postgres:postgres@
 import { describe, expect, test } from "bun:test";
 import {
   listAssistantMemoryReviews,
+  assistantMemoryReviewStats,
   demoteAssistantMemoryPromotion,
+  getAssistantMemoryReview,
   promoteAssistantMemoryReview,
   rejectAssistantMemoryReview,
+  renderAssistantReviewQueueMarkdown,
 } from "../memory/assistant-review";
 
 function makeSql(resolver: (query: string, values: unknown[]) => unknown[] | Promise<unknown[]>) {
@@ -117,6 +120,35 @@ describe("assistant memory review", () => {
     const result = await promoteAssistantMemoryReview(sql, "review-1");
 
     expect(result.idempotent).toBe(true);
+  });
+
+  test("loads detailed review facts for operator preview", async () => {
+    const { sql } = makeSql((query) => {
+      if (query.includes("GROUP BY rq.review_id")) return [{
+        review_id: "review-1", status: "pending", reason: "assistant_memory_import_review", artifact_id: "artifact-1", source_type: "pai_auto_memory", source_key: "pai:1", fact_count: 1,
+      }];
+      if (query.includes("JOIN preserve.fact f")) return [{ fact_id: "fact-1", predicate: "pai_auto_memory_content", object_value: { content: "Preview this memory" }, confidence: 0.9 }];
+      return [];
+    });
+
+    const detail = await getAssistantMemoryReview(sql, "review-1");
+
+    expect(detail?.facts[0].value).toBe("Preview this memory");
+  });
+
+  test("summarizes review queue stats and renders export markdown", async () => {
+    const { sql } = makeSql(() => [
+      { status: "pending", source_type: "pai_auto_memory", count: 2 },
+      { status: "approved", source_type: "vestige_memory", count: 1 },
+    ]);
+
+    const stats = await assistantMemoryReviewStats(sql);
+    const markdown = renderAssistantReviewQueueMarkdown([{ reviewId: "r1", status: "pending", reason: "assistant_memory_import_review", sourceType: "pai_auto_memory", sourceKey: "pai:1", factCount: 2 }]);
+
+    expect(stats.total).toBe(3);
+    expect(stats.byStatus.pending).toBe(2);
+    expect(markdown).toContain("# BrainCore Assistant Memory Review Queue");
+    expect(markdown).toContain("pai:1");
   });
 
   test("demotion suppresses prompt memory and resets review for re-review", async () => {

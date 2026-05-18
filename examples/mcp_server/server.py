@@ -36,7 +36,9 @@ Two design notes worth understanding before extending this file:
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -257,6 +259,29 @@ def _bootstrap_library() -> tuple[Any, ...]:
 
 app = FastMCP("braincore-example-mcp")
 
+
+def _braincore_cli_command() -> list[str]:
+    raw = os.environ.get("BRAINCORE_CLI", "braincore")
+    return raw.split()
+
+
+def _run_braincore_cli(args: list[str]) -> dict[str, Any]:
+    command = [*_braincore_cli_command(), *args]
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or f"BrainCore CLI exited {completed.returncode}")
+    output = completed.stdout.strip()
+    start = output.find("{")
+    if start == -1:
+        raise RuntimeError("BrainCore CLI did not return JSON output")
+    return json.loads(output[start:])
+
 # Deferred connection pool. Created on first tool invocation.
 _pool: Optional[ConnectionPool] = None
 
@@ -287,6 +312,41 @@ def _get_pool() -> ConnectionPool:
 
     _pool = ConnectionPool(conninfo=dsn, min_size=1, max_size=4, open=True)
     return _pool
+
+
+@app.tool(name="braincore-snapshot")
+def braincore_snapshot_tool(
+    cwd: str,
+    git_root: Optional[str] = None,
+    prompt: Optional[str] = None,
+    mode: str = "shadow",
+    max_tokens: int = 3000,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Build an audited BrainCore memory snapshot through the BrainCore CLI.
+
+    This reference tool is intentionally read-only. It uses the same
+    ``braincore snapshot build`` surface operators use during runtime cutover.
+    Set ``BRAINCORE_CLI`` when the executable is not on PATH.
+    """
+    args = [
+        "snapshot",
+        "build",
+        "--cwd",
+        cwd,
+        "--mode",
+        mode,
+        "--max-tokens",
+        str(max_tokens),
+        "--limit",
+        str(limit),
+        "--json",
+    ]
+    if git_root:
+        args.extend(["--git-root", git_root])
+    if prompt:
+        args.extend(["--prompt", prompt])
+    return _run_braincore_cli(args)
 
 
 @app.tool(name="memory-search")
