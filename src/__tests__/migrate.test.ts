@@ -29,6 +29,7 @@ describe("migration plan", () => {
       "020_embedding_index_roles.sql",
       "021_enterprise_lifecycle.sql",
       "022_memory_governance.sql",
+      "023_assistant_memory_sources.sql",
     ]);
   });
 
@@ -181,6 +182,13 @@ describe("migration plan", () => {
     expect(marker).toContain("idx_memory_lifecycle_outbox_idempotency");
     expect(marker).toContain("to_regclass('preserve.memory_edge')");
     expect(marker).not.toContain("'preserve.memory_edge'::regclass");
+  });
+
+  test("assistant memory source marker checks additive source enum values", () => {
+    const marker = markerSqlForMigration("023_assistant_memory_sources.sql");
+    expect(marker).toContain("vestige_memory");
+    expect(marker).toContain("pai_auto_memory");
+    expect(marker).toContain("source_type");
   });
 
   test("migration checksums are stable sha256 strings", () => {

@@ -17,6 +17,8 @@
  * - asana_task: must have source_key formatted as asana_task:<gid>
  * - git_commit: must have source_key formatted as git_commit:<repo_slug>:<sha>
  * - claude_session: must have source_key
+ * - vestige_memory: must have source_key formatted as vestige_memory:<id>
+ * - pai_auto_memory: must have source_key formatted as pai_auto_memory:<slug>
  * - personal_memory: must have scope_path
  */
 
@@ -205,6 +207,29 @@ function validateGitCommit(
   return null;
 }
 
+function validateVestigeMemory(
+  fact: FactCandidate,
+  ctx: ValidationContext,
+): string | null {
+  if (!ctx.sourceKey || !/^vestige_memory:[^:\s]+$/.test(ctx.sourceKey)) {
+    return 'vestige_memory fact rejected: missing source_key';
+  }
+  if (!fact.segment_ids || fact.segment_ids.length === 0) {
+    return 'vestige_memory fact rejected: no segment evidence';
+  }
+  return null;
+}
+
+function validatePaiAutoMemory(
+  fact: FactCandidate,
+  ctx: ValidationContext,
+): string | null {
+  if (!ctx.sourceKey || !/^pai_auto_memory:[^\s]+$/.test(ctx.sourceKey)) {
+    return 'pai_auto_memory fact rejected: missing source_key';
+  }
+  return null;
+}
+
 const VALIDATORS: Record<
   string,
   (fact: FactCandidate, ctx: ValidationContext) => string | null
@@ -219,6 +244,8 @@ const VALIDATORS: Record<
   telegram_chat: validateTelegramChat,
   asana_task: validateAsanaTask,
   git_commit: validateGitCommit,
+  vestige_memory: validateVestigeMemory,
+  pai_auto_memory: validatePaiAutoMemory,
 };
 
 // ── Deduplication Check ────────────────────────────────────────────────────────

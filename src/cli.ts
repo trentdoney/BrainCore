@@ -38,6 +38,8 @@ function printUsage(): void {
   console.log("    --grafana          Extract Grafana dashboards/alerts");
   console.log("    --asana-export <path> Extract exported Asana task JSON/JSONL");
   console.log("    --git-commits <repo-or-export> Extract local git commits or exported JSON/JSONL");
+  console.log("    --vestige-export <path> Extract Vestige JSON/JSONL memory export");
+  console.log("    --pai-auto-memory <dir> Extract PAI auto-memory markdown files");
   console.log("    --since <ref>      Git ref for --git-commits repo scans");
   console.log("    --pending          Extract all pending artifacts");
   console.log("    --use-claude       Escalate to Claude CLI for semantic");
@@ -335,6 +337,8 @@ const commands: Record<string, () => Promise<void>> = {
     const grafana = hasFlag("grafana");
     const asanaExport = getFlag("asana-export");
     const gitCommits = getFlag("git-commits");
+    const vestigeExport = getFlag("vestige-export");
+    const paiAutoMemory = getFlag("pai-auto-memory");
     const since = getFlag("since");
 
     if (sessionPath) {
@@ -382,6 +386,16 @@ const commands: Record<string, () => Promise<void>> = {
       return;
     }
 
+    if (vestigeExport) {
+      await extractVestigeExport(vestigeExport, dryRun);
+      return;
+    }
+
+    if (paiAutoMemory) {
+      await extractPaiAutoMemory(paiAutoMemory, dryRun);
+      return;
+    }
+
     if (!incidentPath && !pending) {
       console.error(
         "Usage: braincore extract --incident <path> [--use-claude] [--skip-semantic] [--dry-run]",
@@ -415,6 +429,12 @@ const commands: Record<string, () => Promise<void>> = {
       );
       console.error(
         "       braincore extract --git-commits <repo-or-export> [--since <ref>] [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --vestige-export <path> [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --pai-auto-memory <dir> [--dry-run]",
       );
     }
 
@@ -2221,6 +2241,30 @@ async function extractSession(sessionPath: string): Promise<void> {
 
   console.log("\n[3/3] Done.");
   await sql.end();
+}
+
+async function extractVestigeExport(path: string, dryRun?: boolean): Promise<void> {
+  const { parseVestigeExport } = await import("./extract/vestige-parser");
+  console.log("\n=== BrainCore Extract: Vestige Memory Export ===\n");
+  console.log("[1/3] Parsing Vestige JSON/JSONL export...");
+  const items = await parseVestigeExport(path);
+  if (items.length === 0) {
+    console.error("No Vestige memories found in export; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("Vestige memory", items, dryRun);
+}
+
+async function extractPaiAutoMemory(path: string, dryRun?: boolean): Promise<void> {
+  const { parsePaiAutoMemory } = await import("./extract/pai-auto-memory-parser");
+  console.log("\n=== BrainCore Extract: PAI Auto Memory ===\n");
+  console.log("[1/3] Parsing PAI auto-memory markdown files...");
+  const items = await parsePaiAutoMemory(path);
+  if (items.length === 0) {
+    console.error("No PAI auto-memory files found; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("PAI auto memory", items, dryRun);
 }
 
 async function extractPersonalMemory(): Promise<void> {
