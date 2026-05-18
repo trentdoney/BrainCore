@@ -30,7 +30,7 @@ export async function buildBrainCoreSnapshot(
   options: BrainCoreSnapshotOptions,
 ): Promise<BrainCoreSnapshotResult> {
   const domains = resolveSnapshotDomains(options.cwd, options.gitRoot, options.prompt);
-  const cues = [...domains, ...tokenCues(options.prompt)].slice(0, 12);
+  const cues = tokenCues(options.prompt).slice(0, 12);
   const recall = await recallForContext(sql, {
     trigger: "braincore_snapshot",
     tenant: options.tenant,

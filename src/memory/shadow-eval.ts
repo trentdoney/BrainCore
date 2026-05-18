@@ -8,6 +8,7 @@ export interface ShadowEvalCase {
   prompt: string;
   expectedTerms?: string[];
   forbiddenTerms?: string[];
+  expectEmpty?: boolean;
   maxTokens?: number;
 }
 
@@ -22,6 +23,7 @@ export interface ShadowEvalCaseResult {
   truncated: boolean;
   missingExpected: string[];
   matchedForbidden: string[];
+  expectEmpty: boolean;
 }
 
 export interface ShadowEvalResult {
@@ -51,8 +53,12 @@ export async function runBrainCoreShadowEval(sql: postgres.Sql, cases: ShadowEva
     const haystack = snapshot.markdown.toLowerCase();
     const missingExpected = (testCase.expectedTerms ?? []).filter((term) => !haystack.includes(term.toLowerCase()));
     const matchedForbidden = (testCase.forbiddenTerms ?? []).filter((term) => haystack.includes(term.toLowerCase()));
-    const useful = snapshot.recall.promptPackage.length > 0 && ((testCase.expectedTerms?.length ?? 0) === 0 || missingExpected.length === 0);
-    const badRecall = matchedForbidden.length > 0;
+    const expectEmpty = testCase.expectEmpty === true;
+    const hasPromptPackage = snapshot.recall.promptPackage.length > 0;
+    const useful = expectEmpty
+      ? !hasPromptPackage && matchedForbidden.length === 0
+      : hasPromptPackage && ((testCase.expectedTerms?.length ?? 0) === 0 || missingExpected.length === 0);
+    const badRecall = matchedForbidden.length > 0 || (expectEmpty && hasPromptPackage);
     results.push({
       name: testCase.name,
       useful,
@@ -64,6 +70,7 @@ export async function runBrainCoreShadowEval(sql: postgres.Sql, cases: ShadowEva
       truncated: snapshot.truncated,
       missingExpected,
       matchedForbidden,
+      expectEmpty,
     });
   }
   const total = results.length;
@@ -71,7 +78,9 @@ export async function runBrainCoreShadowEval(sql: postgres.Sql, cases: ShadowEva
   const badRecall = results.filter((result) => result.badRecall).length;
   const truncated = results.filter((result) => result.truncated).length;
   const empty = results.filter((result) => result.promptEligible === 0).length;
-  const usefulRate = total ? useful / total : 0;
+  const positiveTotal = results.filter((result) => !result.expectEmpty).length;
+  const positiveUseful = results.filter((result) => !result.expectEmpty && result.useful).length;
+  const usefulRate = positiveTotal ? positiveUseful / positiveTotal : (total ? useful / total : 0);
   const badRecallRate = total ? badRecall / total : 0;
   const truncationRate = total ? truncated / total : 0;
   return {

@@ -24,4 +24,29 @@ describe("BrainCore shadow eval", () => {
     expect(result.passed).toBe(true);
     expect(result.usefulRate).toBe(1);
   });
+
+  test("treats expected-empty negative controls as useful only when no prompt package is returned", async () => {
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = strings.join("?");
+      if (query.includes("SELECT") && query.includes("m.memory_id::text") && JSON.stringify(values).includes("project:memory")) {
+        return Promise.resolve([{
+          memory_id: "33333333-3333-4333-8333-333333333333", memory_type: "heuristic", title: "BrainCore recall", narrative: "BrainCore native memory snapshot works.", confidence: 0.9, scope_path: "project:memory", priority: 1, namespace: "semantic", governance_status: "validated", source_class: "imported_knowledge", trust_class: "human_curated", quality_score: 0.9, strength: 0.8, token_count: 8, text_rank: 1,
+        }]);
+      }
+      return Promise.resolve([]);
+    }) as any;
+    sql.json = (value: unknown) => value;
+
+    const result = await runBrainCoreShadowEval(sql, [
+      { name: "positive", cwd: "/repo/10_projects/Memory", gitRoot: "/repo", prompt: "braincore memory", expectedTerms: ["BrainCore native"], maxTokens: 500 },
+      { name: "negative", cwd: "/repo/10_projects/OpenAOS", gitRoot: "/repo", prompt: "unrelated persona workflow", expectEmpty: true, forbiddenTerms: ["BrainCore native"], maxTokens: 500 },
+    ]);
+
+    expect(result.total).toBe(2);
+    expect(result.passed).toBe(true);
+    expect(result.badRecall).toBe(0);
+    expect(result.cases[1].useful).toBe(true);
+    expect(result.cases[1].promptEligible).toBe(0);
+  });
+
 });
