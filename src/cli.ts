@@ -218,7 +218,7 @@ function printMemoryAdminUsage(): void {
   console.log("  assistant-review stats");
   console.log("  assistant-review show --review-id <uuid> [--fact-limit <n>]");
   console.log("  assistant-review export [--status pending] [--limit <n>]");
-  console.log("  assistant-review approve --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review approve --review-id <uuid> [--scope <scope>] [--notes <text>]");
   console.log("  assistant-review reject --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review suppress --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review demote --memory-id <uuid> [--notes <text>]");
@@ -1107,7 +1107,7 @@ const commands: Record<string, () => Promise<void>> = {
 
       const reviewId = getFlag("review-id");
       if (!reviewId) {
-        console.error("Usage: braincore memory assistant-review <approve|reject|suppress> --review-id <uuid> [--notes <text>]");
+        console.error("Usage: braincore memory assistant-review <approve|reject|suppress> --review-id <uuid> [--scope <scope>] [--notes <text>]");
         await sql.end();
         process.exit(1);
       }
@@ -1116,6 +1116,7 @@ const commands: Record<string, () => Promise<void>> = {
         const result = await promoteAssistantMemoryReview(sql, reviewId, {
           notes: getFlag("notes"),
           actor: getFlag("actor") ?? "braincore-cli",
+          scopePath: getFlag("scope"),
         });
         console.log(JSON.stringify(result, null, 2));
         await sql.end();

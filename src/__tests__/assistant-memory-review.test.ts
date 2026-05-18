@@ -85,15 +85,17 @@ describe("assistant memory review", () => {
       return [];
     });
 
-    const result = await promoteAssistantMemoryReview(sql, "review-1", { notes: "approved" });
+    const result = await promoteAssistantMemoryReview(sql, "review-1", { notes: "approved", scopePath: "project:braincore" });
 
     expect(result.memoryId).toBe("memory-1");
+    expect(result.scopePath).toBe("project:braincore");
     expect(result.trustClass).toBe("human_curated");
     expect(result.idempotent).toBe(false);
     expect(calls.some((call) => call.query.includes("DELETE FROM preserve.memory_support"))).toBe(true);
     expect(calls.some((call) => call.query.includes("INSERT INTO preserve.memory_support"))).toBe(true);
     expect(calls.some((call) => call.query.includes("status = 'approved'::preserve.review_status"))).toBe(true);
     expect(calls.some((call) => call.query.includes("can_promote_memory = true"))).toBe(true);
+    expect(calls.some((call) => call.values.includes("project:braincore"))).toBe(true);
   });
 
   test("promotion reports repeat approvals as idempotent", async () => {
@@ -156,7 +158,7 @@ describe("assistant memory review", () => {
       if (query.includes("FROM preserve.memory") && query.includes("FOR UPDATE")) {
         return [{
           memory_id: "memory-1",
-          governance_meta: { reviewId: "review-1", sourceKey: "pai:1" },
+          governance_meta: { reviewId: "11111111-1111-4111-8111-111111111111", sourceKey: "pai:1" },
           governance_status: "validated",
           source_class: "imported_knowledge",
           trust_class: "human_curated",
@@ -170,9 +172,36 @@ describe("assistant memory review", () => {
 
     expect(result.demoted).toBe(true);
     expect(result.resetReview).toBe(true);
-    expect(result.reviewId).toBe("review-1");
+    expect(result.reviewId).toBe("11111111-1111-4111-8111-111111111111");
     expect(calls.some((call) => call.query.includes("governance_status = 'suppressed'"))).toBe(true);
     expect(calls.some((call) => call.query.includes("status = 'pending'::preserve.review_status"))).toBe(true);
     expect(calls.some((call) => call.query.includes("can_promote_memory = false"))).toBe(true);
   });
+
+  test("demotion recovers review through support links when metadata was redacted", async () => {
+    const { sql, calls } = makeSql((query) => {
+      if (query.includes("FROM preserve.memory") && query.includes("FOR UPDATE")) {
+        return [{
+          memory_id: "memory-1",
+          governance_meta: { reviewId: "[REDACTED_TOKEN]", sourceKey: "pai_auto_memory:[REDACTED_TOKEN]" },
+          governance_status: "validated",
+          source_class: "imported_knowledge",
+          trust_class: "human_curated",
+        }];
+      }
+      if (query.includes("FROM preserve.memory_support ms")) {
+        return [{ review_id: "22222222-2222-4222-8222-222222222222", source_key: "pai_auto_memory:feedback_codex_review_before_approve" }];
+      }
+      if (query.includes("UPDATE preserve.review_queue")) return [{ artifact_id: "artifact-1" }];
+      return [];
+    });
+
+    const result = await demoteAssistantMemoryPromotion(sql, "memory-1", { notes: "rollback drill" });
+
+    expect(result.resetReview).toBe(true);
+    expect(result.reviewId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(result.sourceKey).toBe("pai_auto_memory:feedback_codex_review_before_approve");
+    expect(calls.some((call) => call.query.includes("FROM preserve.memory_support ms"))).toBe(true);
+  });
+
 });

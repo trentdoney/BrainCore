@@ -23,6 +23,7 @@ export interface AssistantReviewPromotionResult {
   artifactId: string;
   memoryId: string;
   sourceKey: string;
+  scopePath?: string;
   supportCount: number;
   trustClass: MemoryTrustClass;
   idempotent: boolean;
@@ -230,10 +231,14 @@ export async function rejectAssistantMemoryReview(
   return rows.length > 0;
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export async function promoteAssistantMemoryReview(
   sql: postgres.Sql,
   reviewId: string,
-  options: { tenant?: string; notes?: string; actor?: string } = {},
+  options: { tenant?: string; notes?: string; actor?: string; scopePath?: string } = {},
 ): Promise<AssistantReviewPromotionResult> {
   const tenant = options.tenant ?? config.tenant;
   return sql.begin(async (tx) => {
@@ -288,19 +293,22 @@ export async function promoteAssistantMemoryReview(
 
     const narrative = buildAssistantMemoryNarrative(facts as any[]);
     const title = buildAssistantMemoryTitle(target.source_type, target.source_key, narrative);
+    const promotedScopePath = options.scopePath?.trim() || target.scope_path || null;
     const confidence = clampConfidence(Math.max(...facts.map((fact: any) => Number(fact.confidence ?? 0.7))));
     const tokenCount = estimateTokenCount(`${title}\n${narrative}`);
     const fingerprint = sha256(`${tenant}|assistant-import|${target.source_key}`);
     const trustClass: MemoryTrustClass = "human_curated";
-    const meta = redactValue({
+    const meta = {
       assistantImport: true,
       reviewId,
       sourceType: target.source_type,
       sourceKey: target.source_key,
-      originalPath: target.original_path,
+      originalPath: redactValue(target.original_path),
+      originalScopePath: target.scope_path,
+      promotedScopePath,
       reviewedBy: options.actor ?? "braincore-cli",
       reviewedAt: new Date().toISOString(),
-    });
+    };
 
     const [memory] = await tx`
       INSERT INTO preserve.memory (
@@ -323,7 +331,7 @@ export async function promoteAssistantMemoryReview(
         'assistant-memory-review',
         'deterministic-import',
         'assistant-memory-review-v1',
-        ${target.scope_path},
+        ${promotedScopePath},
         3,
         now(),
         'semantic'::preserve.memory_namespace,
@@ -345,6 +353,7 @@ export async function promoteAssistantMemoryReview(
         lifecycle_state = EXCLUDED.lifecycle_state,
         governance_status = EXCLUDED.governance_status,
         trust_class = EXCLUDED.trust_class,
+        scope_path = EXCLUDED.scope_path,
         quality_score = EXCLUDED.quality_score,
         token_count = EXCLUDED.token_count,
         governance_meta = COALESCE(preserve.memory.governance_meta, '{}'::jsonb) || EXCLUDED.governance_meta,
@@ -386,6 +395,7 @@ export async function promoteAssistantMemoryReview(
       artifactId: target.artifact_id,
       memoryId: memory.memory_id,
       sourceKey: target.source_key,
+      scopePath: promotedScopePath ?? undefined,
       supportCount: facts.length,
       trustClass,
       idempotent: target.review_status === "approved",
@@ -421,8 +431,29 @@ export async function demoteAssistantMemoryPromotion(
     }
 
     const meta = (memory.governance_meta ?? {}) as Record<string, unknown>;
-    const reviewId = typeof meta.reviewId === "string" ? meta.reviewId : undefined;
-    const sourceKey = typeof meta.sourceKey === "string" ? meta.sourceKey : undefined;
+    let reviewId = isUuid(meta.reviewId) ? meta.reviewId : undefined;
+    let sourceKey = typeof meta.sourceKey === "string" && !meta.sourceKey.includes("[REDACTED") ? meta.sourceKey : undefined;
+
+    if (!reviewId) {
+      const [linkedReview] = await tx`
+        SELECT rq.review_id::text, a.source_key
+        FROM preserve.memory_support ms
+        JOIN preserve.fact f ON f.fact_id = ms.fact_id
+        JOIN preserve.extraction_run er ON er.run_id = f.created_run_id
+        JOIN preserve.artifact a ON a.artifact_id = er.artifact_id
+        JOIN preserve.review_queue rq ON rq.target_id = a.artifact_id
+        WHERE ms.memory_id = ${memoryId}
+          AND ms.notes = 'assistant memory import review'
+          AND rq.target_type = 'artifact'
+          AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+          AND a.tenant = ${tenant}
+        LIMIT 1
+      `;
+      if (linkedReview) {
+        reviewId = linkedReview.review_id;
+        sourceKey = linkedReview.source_key;
+      }
+    }
 
     await tx`
       DELETE FROM preserve.memory_support
