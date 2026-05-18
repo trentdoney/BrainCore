@@ -86,6 +86,7 @@ function printUsage(): void {
   console.log("    backfill-intelligence  Add lifecycle intelligence rows for existing targets");
   console.log("    stats              Show lifecycle outbox/intelligence counts");
   console.log("  memory               Lifecycle admin surface for memory targets");
+  console.log("  snapshot             Build an audited BrainCore memory snapshot");
   console.log("    status-set         Set lifecycle intelligence status only");
   console.log("    feedback-record    Record lifecycle feedback and score audit");
   console.log("  context              Context recall audit surface");
@@ -213,6 +214,10 @@ function printMemoryAdminUsage(): void {
   console.log("  event --process [--limit <n>]");
   console.log("  event --prune [--before <iso-date>]");
   console.log("  recall --trigger <name> [--goal <text>] [--cue <text>] [--max-tokens <n>] [--mode shadow|eval|default_on|off]");
+  console.log("  assistant-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  assistant-review approve --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review reject --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review suppress --review-id <uuid> [--notes <text>]");
   console.log("  read --memory-id <id> [--max-tokens <n>]");
   console.log("  status --memory-id <id> --set <status> [--reason <text>]");
   console.log("  feedback --memory-id <id> --signal <signal> [--outcome <text>]");
@@ -231,6 +236,18 @@ function printContextUsage(): void {
   console.log("");
   console.log("Options:");
   console.log("  --goal <text> --scope <path> --session-key <key> --injected --total-tokens <n>");
+}
+
+function printSnapshotUsage(): void {
+  console.log("Usage: braincore snapshot build --cwd <path> [options]");
+  console.log("");
+  console.log("Options:");
+  console.log("  --git-root <path>       Repository root used for domain inference");
+  console.log("  --prompt <text>         Goal or task prompt used as recall cues");
+  console.log("  --mode shadow|eval|default_on|off");
+  console.log("  --max-tokens <n>        Recall budget (default 3000)");
+  console.log("  --limit <n>             Result limit (default 20)");
+  console.log("  --json                  Print structured result instead of markdown");
 }
 
 // Handle help flags explicitly BEFORE the commands[] dispatch so they never
@@ -277,6 +294,11 @@ if (command === "memory" && isHelpArg(args[0])) {
 
 if (command === "context" && isHelpArg(args[0])) {
   printContextUsage();
+  process.exit(0);
+}
+
+if (command === "snapshot" && isHelpArg(args[0])) {
+  printSnapshotUsage();
   process.exit(0);
 }
 
@@ -940,6 +962,38 @@ const commands: Record<string, () => Promise<void>> = {
     process.exit(1);
   },
 
+  snapshot: async () => {
+    const subcommand = args[0];
+    if (subcommand !== "build") {
+      printSnapshotUsage();
+      process.exit(subcommand && !isHelpArg(subcommand) ? 1 : 0);
+    }
+    const cwd = getFlag("cwd");
+    if (!cwd) {
+      console.error("Usage: braincore snapshot build --cwd <path> [--prompt <text>]");
+      process.exit(1);
+    }
+    const { sql, testConnection } = await import("./db");
+    const { buildBrainCoreSnapshot } = await import("./memory/snapshot");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+    try {
+      const maxTokens = Number(getFlag("max-tokens") ?? "3000");
+      const limit = Number(getFlag("limit") ?? "20");
+      const result = await buildBrainCoreSnapshot(sql, {
+        cwd,
+        gitRoot: getFlag("git-root"),
+        prompt: getFlag("prompt"),
+        maxTokens: Number.isFinite(maxTokens) ? maxTokens : 3000,
+        mode: (getFlag("mode") as import("./memory/governance").ContextInjectionMode | undefined) ?? "shadow",
+        limit: Number.isFinite(limit) ? limit : 20,
+      });
+      console.log(hasFlag("json") ? JSON.stringify(result, null, 2) : result.markdown);
+    } finally {
+      await sql.end();
+    }
+  },
+
   memory: async () => {
     const subcommand = args[0];
     if (!subcommand || isHelpArg(subcommand)) {
@@ -951,6 +1005,58 @@ const commands: Record<string, () => Promise<void>> = {
     console.log("\n=== BrainCore Memory Admin ===\n");
     const connected = await testConnection();
     if (!connected) { process.exit(1); }
+
+    if (subcommand === "assistant-review") {
+      const action = args[1] ?? "list";
+      const {
+        listAssistantMemoryReviews,
+        promoteAssistantMemoryReview,
+        rejectAssistantMemoryReview,
+      } = await import("./memory/assistant-review");
+
+      if (action === "list") {
+        const limit = Number(getFlag("limit") ?? "50");
+        const rows = await listAssistantMemoryReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : 50,
+        });
+        console.log(JSON.stringify(rows, null, 2));
+        await sql.end();
+        return;
+      }
+
+      const reviewId = getFlag("review-id");
+      if (!reviewId) {
+        console.error("Usage: braincore memory assistant-review <approve|reject|suppress> --review-id <uuid> [--notes <text>]");
+        await sql.end();
+        process.exit(1);
+      }
+
+      if (action === "approve" || action === "promote") {
+        const result = await promoteAssistantMemoryReview(sql, reviewId, {
+          notes: getFlag("notes"),
+          actor: getFlag("actor") ?? "braincore-cli",
+        });
+        console.log(JSON.stringify(result, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "reject" || action === "suppress") {
+        const updated = await rejectAssistantMemoryReview(sql, reviewId, {
+          notes: getFlag("notes"),
+          suppressed: action === "suppress",
+        });
+        console.log(JSON.stringify({ reviewId, updated }, null, 2));
+        await sql.end();
+        return;
+      }
+
+      console.error(`Unknown assistant-review action: ${action}`);
+      printMemoryAdminUsage();
+      await sql.end();
+      process.exit(1);
+    }
 
     if (subcommand === "status-set" || subcommand === "feedback-record") {
       const targetKind = getFlag("target-kind");
