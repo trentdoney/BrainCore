@@ -25,6 +25,16 @@ export interface AssistantReviewPromotionResult {
   sourceKey: string;
   supportCount: number;
   trustClass: MemoryTrustClass;
+  idempotent: boolean;
+}
+
+export interface AssistantReviewDemotionResult {
+  memoryId: string;
+  reviewId?: string;
+  artifactId?: string;
+  sourceKey?: string;
+  resetReview: boolean;
+  demoted: boolean;
 }
 
 export async function listAssistantMemoryReviews(
@@ -105,6 +115,7 @@ export async function promoteAssistantMemoryReview(
     const [target] = await tx`
       SELECT
         rq.review_id::text,
+        rq.status::text AS review_status,
         a.artifact_id::text,
         a.source_type::text,
         a.source_key,
@@ -119,7 +130,7 @@ export async function promoteAssistantMemoryReview(
         AND rq.status IN ('pending','approved')
         AND a.tenant = ${tenant}
         AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
-      FOR UPDATE OF rq
+      FOR UPDATE OF rq, a
       LIMIT 1
     `;
     if (!target) {
@@ -217,11 +228,15 @@ export async function promoteAssistantMemoryReview(
       RETURNING memory_id::text
     `;
 
+    await tx`
+      DELETE FROM preserve.memory_support
+      WHERE memory_id = ${memory.memory_id}
+        AND notes = 'assistant memory import review'
+    `;
     for (const fact of facts as any[]) {
       await tx`
         INSERT INTO preserve.memory_support (memory_id, fact_id, episode_id, support_type, notes)
         VALUES (${memory.memory_id}, ${fact.fact_id}, ${fact.episode_id}, 'supporting', 'assistant memory import review')
-        ON CONFLICT DO NOTHING
       `;
     }
 
@@ -248,7 +263,95 @@ export async function promoteAssistantMemoryReview(
       sourceKey: target.source_key,
       supportCount: facts.length,
       trustClass,
+      idempotent: target.review_status === "approved",
     };
+  });
+}
+
+export async function demoteAssistantMemoryPromotion(
+  sql: postgres.Sql,
+  memoryId: string,
+  options: { tenant?: string; notes?: string; actor?: string } = {},
+): Promise<AssistantReviewDemotionResult> {
+  const tenant = options.tenant ?? config.tenant;
+  return sql.begin(async (tx) => {
+    const [memory] = await tx`
+      SELECT
+        memory_id::text,
+        fingerprint,
+        governance_meta,
+        governance_status::text,
+        source_class::text,
+        trust_class::text
+      FROM preserve.memory
+      WHERE memory_id = ${memoryId}
+        AND tenant = ${tenant}
+        AND source_class = 'imported_knowledge'::preserve.memory_source_class
+        AND trust_class = 'human_curated'::preserve.memory_trust_class
+      FOR UPDATE
+      LIMIT 1
+    `;
+    if (!memory) {
+      throw new Error("Assistant memory promotion not found for the active tenant.");
+    }
+
+    const meta = (memory.governance_meta ?? {}) as Record<string, unknown>;
+    const reviewId = typeof meta.reviewId === "string" ? meta.reviewId : undefined;
+    const sourceKey = typeof meta.sourceKey === "string" ? meta.sourceKey : undefined;
+
+    await tx`
+      DELETE FROM preserve.memory_support
+      WHERE memory_id = ${memoryId}
+        AND notes = 'assistant memory import review'
+    `;
+
+    await tx`
+      UPDATE preserve.memory
+      SET governance_status = 'suppressed'::preserve.memory_governance_status,
+          lifecycle_state = 'retired'::preserve.lifecycle_state,
+          governance_meta = COALESCE(governance_meta, '{}'::jsonb) || ${tx.json(redactValue({
+            assistantImportDemoted: true,
+            demotedAt: new Date().toISOString(),
+            demotedBy: options.actor ?? "braincore-cli",
+            demotionReason: options.notes ?? "assistant memory promotion rollback",
+          }) as any)}::jsonb,
+          updated_at = now()
+      WHERE memory_id = ${memoryId}
+        AND tenant = ${tenant}
+    `;
+
+    let artifactId: string | undefined;
+    let resetReview = false;
+    if (reviewId) {
+      const [review] = await tx`
+        UPDATE preserve.review_queue rq
+        SET status = 'pending'::preserve.review_status,
+            reviewer_notes = ${options.notes ?? "promotion demoted for re-review"},
+            resolved_at = NULL
+        FROM preserve.artifact a
+        WHERE rq.review_id = ${reviewId}
+          AND rq.target_type = 'artifact'
+          AND rq.target_id = a.artifact_id
+          AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+          AND a.tenant = ${tenant}
+        RETURNING a.artifact_id::text
+      `;
+      if (review) {
+        const reviewedArtifactId = review.artifact_id as string;
+        artifactId = reviewedArtifactId;
+        resetReview = true;
+        await tx`
+          UPDATE preserve.artifact
+          SET can_promote_memory = false,
+              preservation_state = 'archived'::preserve.preservation_state,
+              updated_at = now()
+          WHERE artifact_id = ${reviewedArtifactId}
+            AND tenant = ${tenant}
+        `;
+      }
+    }
+
+    return { memoryId, reviewId, artifactId, sourceKey, resetReview, demoted: true };
   });
 }
 

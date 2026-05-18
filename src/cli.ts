@@ -218,6 +218,7 @@ function printMemoryAdminUsage(): void {
   console.log("  assistant-review approve --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review reject --review-id <uuid> [--notes <text>]");
   console.log("  assistant-review suppress --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review demote --memory-id <uuid> [--notes <text>]");
   console.log("  read --memory-id <id> [--max-tokens <n>]");
   console.log("  status --memory-id <id> --set <status> [--reason <text>]");
   console.log("  feedback --memory-id <id> --signal <signal> [--outcome <text>]");
@@ -1009,6 +1010,7 @@ const commands: Record<string, () => Promise<void>> = {
     if (subcommand === "assistant-review") {
       const action = args[1] ?? "list";
       const {
+        demoteAssistantMemoryPromotion,
         listAssistantMemoryReviews,
         promoteAssistantMemoryReview,
         rejectAssistantMemoryReview,
@@ -1021,6 +1023,22 @@ const commands: Record<string, () => Promise<void>> = {
           limit: Number.isFinite(limit) ? limit : 50,
         });
         console.log(JSON.stringify(rows, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "demote" || action === "rollback") {
+        const memoryId = getFlag("memory-id");
+        if (!memoryId) {
+          console.error("Usage: braincore memory assistant-review demote --memory-id <uuid> [--notes <text>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const result = await demoteAssistantMemoryPromotion(sql, memoryId, {
+          notes: getFlag("notes"),
+          actor: getFlag("actor") ?? "braincore-cli",
+        });
+        console.log(JSON.stringify(result, null, 2));
         await sql.end();
         return;
       }

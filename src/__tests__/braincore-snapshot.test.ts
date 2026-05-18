@@ -5,8 +5,8 @@ import type { ContextRecallResult } from "../memory/governance";
 describe("BrainCore snapshot", () => {
   test("infers workspace project domain from cwd", () => {
     const domains = resolveSnapshotDomains(
-      "/workspace/10_projects/Memory",
-      "/workspace/workspace",
+      "/repo/10_projects/Memory",
+      "/repo/repo",
       "braincore memory runtime",
     );
     expect(domains).toContain("memory");
@@ -25,7 +25,7 @@ describe("BrainCore snapshot", () => {
     };
 
     const markdown = renderBrainCoreSnapshot(
-      { cwd: "/workspace/10_projects/Memory", gitRoot: "/workspace/workspace", mode: "shadow" },
+      { cwd: "/repo/10_projects/Memory", gitRoot: "/repo/repo", mode: "shadow" },
       ["memory"],
       recall,
     );
@@ -34,5 +34,21 @@ describe("BrainCore snapshot", () => {
     expect(markdown).toContain("Candidate domains: memory");
     expect(markdown).toContain("No Prompt-Eligible BrainCore Memories");
     expect(markdown).toContain("remain gated until explicitly approved");
+  });
+
+  test("enforces snapshot token budget on rendered output", async () => {
+    const sql = (() => Promise.resolve([])) as any;
+    sql.json = (value: unknown) => value;
+    const result = await (await import("../memory/snapshot")).buildBrainCoreSnapshot(sql, {
+      cwd: "/repo/10_projects/Memory",
+      gitRoot: "/repo",
+      prompt: "memory ".repeat(200),
+      mode: "shadow",
+      maxTokens: 40,
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.tokenEstimate).toBeLessThanOrEqual(40);
+    expect(result.markdown).toContain("Budget Notice");
   });
 });

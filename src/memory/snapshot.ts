@@ -22,6 +22,7 @@ export interface BrainCoreSnapshotResult {
   domains: string[];
   recall: ContextRecallResult;
   tokenEstimate: number;
+  truncated: boolean;
 }
 
 export async function buildBrainCoreSnapshot(
@@ -43,13 +44,14 @@ export async function buildBrainCoreSnapshot(
     actor: "braincore-snapshot",
     route: "braincore snapshot build",
   });
-  const markdown = renderBrainCoreSnapshot({ ...options, mode: options.mode ?? "shadow" }, domains, recall);
-  return { markdown, domains, recall, tokenEstimate: estimateTokens(markdown) };
+  const rendered = renderBrainCoreSnapshot({ ...options, mode: options.mode ?? "shadow" }, domains, recall);
+  const budgeted = enforceSnapshotBudget(rendered, options.maxTokens ?? 3000);
+  return { markdown: budgeted.markdown, domains, recall, tokenEstimate: budgeted.tokenEstimate, truncated: budgeted.truncated };
 }
 
 export function resolveSnapshotDomains(cwd: string, gitRoot?: string | null, prompt?: string): string[] {
   const values: string[] = [];
-  const match = cwd.match(/\/workspace\/10_projects\/([^/]+)/) ?? gitRoot?.match(/\/workspace\/10_projects\/([^/]+)/);
+  const match = cwd.match(/(?:^|\/)10_projects\/([^/]+)/) ?? gitRoot?.match(/(?:^|\/)10_projects\/([^/]+)/);
   if (match?.[1]) values.push(match[1]);
   const rootName = gitRoot ? basename(gitRoot) : basename(cwd);
   if (rootName && rootName !== "." && rootName !== "/") values.push(rootName);
@@ -122,4 +124,19 @@ function tokenCues(value?: string): string[] {
 
 function estimateTokens(value: string): number {
   return estimateTokenCount(value);
+}
+
+function enforceSnapshotBudget(markdown: string, maxTokens: number): { markdown: string; tokenEstimate: number; truncated: boolean } {
+  const tokenEstimate = estimateTokens(markdown);
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0 || tokenEstimate <= maxTokens) {
+    return { markdown, tokenEstimate, truncated: false };
+  }
+  const suffix = "\n\n## Budget Notice\n\nSnapshot truncated to respect the configured token budget.\n";
+  const suffixTokens = estimateTokens(suffix);
+  const contentBudget = Math.max(1, maxTokens - suffixTokens);
+  let truncated = markdown.slice(0, Math.max(1, contentBudget * 4)).trimEnd() + suffix;
+  while (estimateTokens(truncated) > maxTokens && truncated.length > suffix.length + 16) {
+    truncated = truncated.slice(0, Math.max(suffix.length + 16, truncated.length - 64)).trimEnd() + suffix;
+  }
+  return { markdown: truncated, tokenEstimate: estimateTokens(truncated), truncated: true };
 }

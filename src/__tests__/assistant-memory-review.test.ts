@@ -3,6 +3,7 @@ process.env.BRAINCORE_POSTGRES_DSN ??= ["postgresql", "://", "postgres:postgres@
 import { describe, expect, test } from "bun:test";
 import {
   listAssistantMemoryReviews,
+  demoteAssistantMemoryPromotion,
   promoteAssistantMemoryReview,
   rejectAssistantMemoryReview,
 } from "../memory/assistant-review";
@@ -85,8 +86,61 @@ describe("assistant memory review", () => {
 
     expect(result.memoryId).toBe("memory-1");
     expect(result.trustClass).toBe("human_curated");
+    expect(result.idempotent).toBe(false);
+    expect(calls.some((call) => call.query.includes("DELETE FROM preserve.memory_support"))).toBe(true);
     expect(calls.some((call) => call.query.includes("INSERT INTO preserve.memory_support"))).toBe(true);
     expect(calls.some((call) => call.query.includes("status = 'approved'::preserve.review_status"))).toBe(true);
     expect(calls.some((call) => call.query.includes("can_promote_memory = true"))).toBe(true);
+  });
+
+  test("promotion reports repeat approvals as idempotent", async () => {
+    const { sql } = makeSql((query) => {
+      if (query.includes("FROM preserve.review_queue rq") && query.includes("FOR UPDATE")) {
+        return [{
+          review_id: "review-1",
+          review_status: "approved",
+          artifact_id: "artifact-1",
+          source_type: "vestige_memory",
+          source_key: "vestige:1",
+          scope_path: "project:memory",
+          project_entity_id: "project-1",
+          original_path: "memory.jsonl",
+        }];
+      }
+      if (query.includes("JOIN preserve.fact f")) {
+        return [{ fact_id: "fact-1", episode_id: "episode-1", predicate: "vestige_memory_content", object_value: "Memory text", confidence: 0.8 }];
+      }
+      if (query.includes("INSERT INTO preserve.memory")) return [{ memory_id: "memory-1" }];
+      return [];
+    });
+
+    const result = await promoteAssistantMemoryReview(sql, "review-1");
+
+    expect(result.idempotent).toBe(true);
+  });
+
+  test("demotion suppresses prompt memory and resets review for re-review", async () => {
+    const { sql, calls } = makeSql((query) => {
+      if (query.includes("FROM preserve.memory") && query.includes("FOR UPDATE")) {
+        return [{
+          memory_id: "memory-1",
+          governance_meta: { reviewId: "review-1", sourceKey: "pai:1" },
+          governance_status: "validated",
+          source_class: "imported_knowledge",
+          trust_class: "human_curated",
+        }];
+      }
+      if (query.includes("UPDATE preserve.review_queue")) return [{ artifact_id: "artifact-1" }];
+      return [];
+    });
+
+    const result = await demoteAssistantMemoryPromotion(sql, "memory-1", { notes: "bad memory" });
+
+    expect(result.demoted).toBe(true);
+    expect(result.resetReview).toBe(true);
+    expect(result.reviewId).toBe("review-1");
+    expect(calls.some((call) => call.query.includes("governance_status = 'suppressed'"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("status = 'pending'::preserve.review_status"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("can_promote_memory = false"))).toBe(true);
   });
 });
