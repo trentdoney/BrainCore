@@ -31,12 +31,13 @@ export async function buildBrainCoreSnapshot(
 ): Promise<BrainCoreSnapshotResult> {
   const domains = resolveSnapshotDomains(options.cwd, options.gitRoot, options.prompt);
   const cues = tokenCues(options.prompt).slice(0, 12);
-  const recall = await recallForContext(sql, {
+  const scope = domains[0] ? `project:${domains[0]}` : undefined;
+  let recall = await recallForContext(sql, {
     trigger: "braincore_snapshot",
     tenant: options.tenant,
     goal: options.prompt,
     cues,
-    scope: domains[0] ? `project:${domains[0]}` : undefined,
+    scope,
     maxTokens: options.maxTokens ?? 3000,
     injectionMode: options.mode ?? "shadow",
     limit: options.limit ?? 20,
@@ -44,6 +45,19 @@ export async function buildBrainCoreSnapshot(
     actor: "braincore-snapshot",
     route: "braincore snapshot build",
   });
+  if (scope && recall.promptPackage.length === 0 && cues.length > 0) {
+    recall = await recallForContext(sql, {
+      trigger: "braincore_snapshot_scope_fallback",
+      tenant: options.tenant,
+      scope,
+      maxTokens: options.maxTokens ?? 3000,
+      injectionMode: options.mode ?? "shadow",
+      limit: options.limit ?? 20,
+      relevanceReason: "braincore-runtime-snapshot-scope-fallback",
+      actor: "braincore-snapshot",
+      route: "braincore snapshot build fallback",
+    });
+  }
   const rendered = renderBrainCoreSnapshot({ ...options, mode: options.mode ?? "shadow" }, domains, recall);
   const budgeted = enforceSnapshotBudget(rendered, options.maxTokens ?? 3000);
   return { markdown: budgeted.markdown, domains, recall, tokenEstimate: budgeted.tokenEstimate, truncated: budgeted.truncated };
