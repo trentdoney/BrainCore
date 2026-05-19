@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderBrainCoreSnapshot, resolveSnapshotDomains } from "../memory/snapshot";
+import { renderBrainCoreSnapshot, resolveSnapshotBudget, resolveSnapshotDomains } from "../memory/snapshot";
 import type { ContextRecallResult } from "../memory/governance";
 
 describe("BrainCore snapshot", () => {
@@ -10,7 +10,7 @@ describe("BrainCore snapshot", () => {
       "braincore memory runtime",
     );
     expect(domains).toContain("memory");
-    expect(domains).toContain("braincore");
+    expect(domains).not.toContain("braincore");
   });
 
   test("renders no-results gate without pretending imports are prompt eligible", () => {
@@ -50,5 +50,54 @@ describe("BrainCore snapshot", () => {
     expect(result.truncated).toBe(true);
     expect(result.tokenEstimate).toBeLessThanOrEqual(40);
     expect(result.markdown).toContain("Budget Notice");
+  });
+
+  test("does not treat prompt words as candidate domains", () => {
+    const domains = resolveSnapshotDomains(
+      "/repo/10_projects/Memory",
+      "/repo/ProjectRoot",
+      "For verification only inspect Codex shared memory snapshot",
+    );
+    expect(domains).toEqual(["memory", "projectroot"]);
+  });
+
+  test("profile budgets cap max-token overrides", () => {
+    expect(resolveSnapshotBudget("compact")).toBe(1200);
+    expect(resolveSnapshotBudget("risk")).toBe(3000);
+    expect(resolveSnapshotBudget("deep")).toBe(5000);
+    expect(resolveSnapshotBudget("compact", 3000)).toBe(1200);
+    expect(resolveSnapshotBudget("risk", 1000)).toBe(1000);
+  });
+
+  test("compact profile renders bounded memory cards with intact metadata", () => {
+    const recall: ContextRecallResult = {
+      trigger: "braincore_snapshot",
+      mode: "shadow",
+      injected: false,
+      results: [],
+      promptPackage: [{
+        section: "validated_facts",
+        memoryId: "11111111-1111-4111-8111-111111111111",
+        role: "fact",
+        reason: "braincore-runtime-snapshot",
+        content: "Important memory. ".repeat(300),
+        tokenCount: 300,
+        governanceStatus: "validated",
+      }],
+      omitted: [],
+      totalTokens: 300,
+    };
+
+    const markdown = renderBrainCoreSnapshot(
+      { cwd: "/repo/10_projects/Memory", gitRoot: "/repo/ProjectRoot", mode: "shadow", profile: "compact" },
+      ["memory", "projectroot"],
+      recall,
+      "compact",
+    );
+
+    expect(markdown).toContain("Profile: compact");
+    expect(markdown).toContain("Memory ID: 11111111-1111-4111-8111-111111111111");
+    expect(markdown).toContain("Governance: validated");
+    expect(markdown).toContain("Full narrative retained in BrainCore");
   });
 });

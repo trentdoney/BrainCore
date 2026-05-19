@@ -249,6 +249,7 @@ function printSnapshotUsage(): void {
   console.log("  --git-root <path>       Repository root used for domain inference");
   console.log("  --prompt <text>         Goal or task prompt used as recall cues");
   console.log("  --mode shadow|eval|default_on|off");
+  console.log("  --profile compact|risk|deep");
   console.log("  --max-tokens <n>        Recall budget (default 3000)");
   console.log("  --limit <n>             Result limit (default 20)");
   console.log("  --json                  Print structured result instead of markdown");
@@ -1006,15 +1007,21 @@ const commands: Record<string, () => Promise<void>> = {
     const connected = await testConnection();
     if (!connected) { process.exit(1); }
     try {
-      const maxTokens = Number(getFlag("max-tokens") ?? "3000");
+      const profile = getFlag("profile");
+      if (profile && !["compact", "risk", "deep"].includes(profile)) {
+        console.error("Invalid snapshot profile. Expected compact, risk, or deep.");
+        process.exit(1);
+      }
+      const maxTokens = Number(getFlag("max-tokens") ?? "0");
       const limit = Number(getFlag("limit") ?? "20");
       const result = await buildBrainCoreSnapshot(sql, {
         cwd,
         gitRoot: getFlag("git-root"),
         prompt: getFlag("prompt"),
-        maxTokens: Number.isFinite(maxTokens) ? maxTokens : 3000,
+        maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : undefined,
         mode: (getFlag("mode") as import("./memory/governance").ContextInjectionMode | undefined) ?? "shadow",
         limit: Number.isFinite(limit) ? limit : 20,
+        profile: profile as import("./memory/snapshot").BrainCoreSnapshotProfile | undefined,
       });
       console.log(hasFlag("json") ? JSON.stringify(result, null, 2) : result.markdown);
     } finally {
