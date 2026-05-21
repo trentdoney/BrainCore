@@ -76,7 +76,23 @@ bun test src/__tests__/migrate.test.ts src/__tests__/memory-governance.test.ts
 
 echo ""
 echo "--- Python static checks ---"
-python3 -m unittest tests/test_memory_search_governance.py -v
+if [[ -z "${BRAINCORE_PYTHON:-}" ]]; then
+  echo "FAIL: BRAINCORE_PYTHON must point to a Python interpreter with psycopg installed."
+  echo "      Example: BRAINCORE_PYTHON=/path/to/venv/bin/python3"
+  echo "      Install dependencies with: pip install -r mcp/requirements.txt"
+  exit 1
+fi
+
+if ! "$BRAINCORE_PYTHON" - <<PY_CHECK
+import psycopg  # noqa: F401
+PY_CHECK
+then
+  echo "FAIL: BRAINCORE_PYTHON does not have psycopg available: $BRAINCORE_PYTHON"
+  echo "      Install dependencies with: pip install -r mcp/requirements.txt"
+  exit 1
+fi
+
+"$BRAINCORE_PYTHON" -m unittest tests/test_memory_search_governance.py -v
 
 if [[ "$fail" -ne 0 ]]; then
   echo "=== MEMORY POLICY GATE FAILED ==="

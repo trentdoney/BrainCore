@@ -106,7 +106,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations 001-021");
+  console.log("  migrate              Run database migrations 001-023");
   console.log("  help, --help, -h     Show this help message");
 }
 
