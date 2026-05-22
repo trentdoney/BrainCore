@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 
 export interface SourceExtraction {
   sourceKey: string;
-  sourceType: "asana_task" | "git_commit" | "vestige_memory" | "pai_auto_memory";
+  sourceType: "asana_task" | "git_commit" | "vestige_memory" | "pai_auto_memory" | "project_doc";
   originalPath: string;
   sourceContent: string;
   result: import("./deterministic").DeterministicResult;

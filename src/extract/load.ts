@@ -207,6 +207,27 @@ async function resolveEntity(
   return row.entity_id;
 }
 
+
+function lookupEntityId(
+  entityIdMap: Map<string, string>,
+  name: string,
+): string | undefined {
+  for (const type of [
+    "incident",
+    "device",
+    "service",
+    "project",
+    "file",
+    "config_item",
+    "pattern_scope",
+    "session",
+  ]) {
+    const id = entityIdMap.get(`${type}:${name}`);
+    if (id) return id;
+  }
+  return undefined;
+}
+
 /**
  * Load all deterministic + semantic extractions into the preserve schema.
  * The `db` parameter is the postgres.js Sql instance (for db.json() access).
@@ -407,26 +428,19 @@ export async function loadExtraction(
         continue;
       }
 
-      // Resolve subject entity — look up by all possible types
-      let subjectEntityId =
-        entityIdMap.get(`incident:${fact.subject}`) ||
-        entityIdMap.get(`device:${fact.subject}`) ||
-        entityIdMap.get(`service:${fact.subject}`);
+      // Resolve subject entity across known entity types before falling back.
+      let subjectEntityId = lookupEntityId(entityIdMap, fact.subject);
 
       if (!subjectEntityId) {
-        const eid = await resolveEntity(tx, fact.subject, "incident");
-        entityIdMap.set(`incident:${fact.subject}`, eid);
+        const eid = await resolveEntity(tx, fact.subject, "config_item");
+        entityIdMap.set(`config_item:${fact.subject}`, eid);
         subjectEntityId = eid;
       }
 
       // Resolve object entity if it references a known entity name
       let objectEntityId: string | null = null;
       if (typeof fact.object_value === "string") {
-        objectEntityId =
-          entityIdMap.get(`incident:${fact.object_value}`) ||
-          entityIdMap.get(`device:${fact.object_value}`) ||
-          entityIdMap.get(`service:${fact.object_value}`) ||
-          null;
+        objectEntityId = lookupEntityId(entityIdMap, fact.object_value) ?? null;
       }
 
       const [factValidFrom, factValidTo] = validateDateRange(fact.valid_from, fact.valid_to);
@@ -503,10 +517,7 @@ export async function loadExtraction(
           continue;
         }
 
-        let subjectEntityId =
-          entityIdMap.get(`incident:${fact.subject}`) ||
-          entityIdMap.get(`device:${fact.subject}`) ||
-          entityIdMap.get(`service:${fact.subject}`);
+        let subjectEntityId = lookupEntityId(entityIdMap, fact.subject);
 
         if (!subjectEntityId) {
           const eid = await resolveEntity(tx, fact.subject, "config_item");

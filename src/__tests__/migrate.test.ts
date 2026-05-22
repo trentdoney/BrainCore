@@ -30,6 +30,7 @@ describe("migration plan", () => {
       "021_enterprise_lifecycle.sql",
       "022_memory_governance.sql",
       "023_assistant_memory_sources.sql",
+      "024_project_doc_sources.sql",
     ]);
   });
 
@@ -188,6 +189,12 @@ describe("migration plan", () => {
     const marker = markerSqlForMigration("023_assistant_memory_sources.sql");
     expect(marker).toContain("vestige_memory");
     expect(marker).toContain("pai_auto_memory");
+    expect(marker).toContain("source_type");
+  });
+
+  test("project doc source marker checks additive source enum value", () => {
+    const marker = markerSqlForMigration("024_project_doc_sources.sql");
+    expect(marker).toContain("project_doc");
     expect(marker).toContain("source_type");
   });
 

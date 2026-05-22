@@ -19,6 +19,7 @@
  * - claude_session: must have source_key
  * - vestige_memory: must have source_key formatted as vestige_memory:<id>
  * - pai_auto_memory: must have source_key formatted as pai_auto_memory:<slug>
+ * - project_doc: must have source_key, project scope_path, and segment evidence
  * - personal_memory: must have scope_path
  */
 
@@ -220,6 +221,23 @@ function validateVestigeMemory(
   return null;
 }
 
+
+function validateProjectDoc(
+  fact: FactCandidate,
+  ctx: ValidationContext,
+): string | null {
+  if (!ctx.sourceKey || !/^project_doc:[^\s]+$/.test(ctx.sourceKey)) {
+    return `project_doc fact (${fact.subject}/${fact.predicate}) rejected: missing source_key`;
+  }
+  if (!ctx.scopePath || !ctx.scopePath.startsWith("project:")) {
+    return `project_doc fact (${fact.subject}/${fact.predicate}) rejected: missing project scope_path`;
+  }
+  if (!fact.segment_ids || fact.segment_ids.length === 0) {
+    return `project_doc fact (${fact.subject}/${fact.predicate}) rejected: no segment evidence`;
+  }
+  return null;
+}
+
 function validatePaiAutoMemory(
   fact: FactCandidate,
   ctx: ValidationContext,
@@ -246,6 +264,7 @@ const VALIDATORS: Record<
   git_commit: validateGitCommit,
   vestige_memory: validateVestigeMemory,
   pai_auto_memory: validatePaiAutoMemory,
+  project_doc: validateProjectDoc,
 };
 
 // ── Deduplication Check ────────────────────────────────────────────────────────

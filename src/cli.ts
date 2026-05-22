@@ -40,6 +40,7 @@ function printUsage(): void {
   console.log("    --git-commits <repo-or-export> Extract local git commits or exported JSON/JSONL");
   console.log("    --vestige-export <path> Extract Vestige JSON/JSONL memory export");
   console.log("    --pai-auto-memory <dir> Extract PAI auto-memory markdown files");
+  console.log("    --project-doc-manifest <path> Extract curated project documentation manifest");
   console.log("    --since <ref>      Git ref for --git-commits repo scans");
   console.log("    --pending          Extract all pending artifacts");
   console.log("    --use-claude       Escalate to Claude CLI for semantic");
@@ -106,7 +107,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations 001-023");
+  console.log("  migrate              Run database migrations 001-024");
   console.log("  help, --help, -h     Show this help message");
 }
 
@@ -215,6 +216,9 @@ function printMemoryAdminUsage(): void {
   console.log("  event --prune [--before <iso-date>]");
   console.log("  recall --trigger <name> [--goal <text>] [--cue <text>] [--max-tokens <n>] [--mode shadow|eval|default_on|off]");
   console.log("  assistant-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  project-doc-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  project-doc-review export [--status pending] [--limit <n>] [--json]");
+  console.log("  project-doc-review apply-decisions --decisions <path> [--actor <name>]");
   console.log("  assistant-review stats");
   console.log("  assistant-review show --review-id <uuid> [--fact-limit <n>]");
   console.log("  assistant-review export [--status pending] [--limit <n>]");
@@ -367,6 +371,7 @@ const commands: Record<string, () => Promise<void>> = {
     const gitCommits = getFlag("git-commits");
     const vestigeExport = getFlag("vestige-export");
     const paiAutoMemory = getFlag("pai-auto-memory");
+    const projectDocManifest = getFlag("project-doc-manifest");
     const since = getFlag("since");
 
     if (sessionPath) {
@@ -424,6 +429,11 @@ const commands: Record<string, () => Promise<void>> = {
       return;
     }
 
+    if (projectDocManifest) {
+      await extractProjectDocManifest(projectDocManifest, dryRun);
+      return;
+    }
+
     if (!incidentPath && !pending) {
       console.error(
         "Usage: braincore extract --incident <path> [--use-claude] [--skip-semantic] [--dry-run]",
@@ -463,6 +473,9 @@ const commands: Record<string, () => Promise<void>> = {
       );
       console.error(
         "       braincore extract --pai-auto-memory <dir> [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --project-doc-manifest <path> [--dry-run]",
       );
     }
 
@@ -1141,6 +1154,46 @@ const commands: Record<string, () => Promise<void>> = {
       }
 
       console.error(`Unknown assistant-review action: ${action}`);
+      printMemoryAdminUsage();
+      await sql.end();
+      process.exit(1);
+    }
+
+    if (subcommand === "project-doc-review") {
+      const action = args[1] ?? "list";
+      const {
+        applyProjectDocReviewDecisions,
+        listProjectDocReviews,
+        renderProjectDocReviewPacket,
+      } = await import("./memory/project-doc-review");
+
+      if (action === "list" || action === "export") {
+        const limit = Number(getFlag("limit") ?? (action === "export" ? "200" : "50"));
+        const rows = await listProjectDocReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : action === "export" ? 200 : 50,
+        });
+        console.log(hasFlag("json") ? JSON.stringify(rows, null, 2) : renderProjectDocReviewPacket(rows));
+        await sql.end();
+        return;
+      }
+
+      if (action === "apply-decisions") {
+        const decisions = getFlag("decisions");
+        if (!decisions) {
+          console.error("Usage: braincore memory project-doc-review apply-decisions --decisions <path> [--actor <name>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const result = await applyProjectDocReviewDecisions(sql, decisions, {
+          actor: getFlag("actor") ?? "braincore-cli",
+        });
+        console.log(JSON.stringify(result, null, 2));
+        await sql.end();
+        return;
+      }
+
+      console.error(`Unknown project-doc-review action: ${action}`);
       printMemoryAdminUsage();
       await sql.end();
       process.exit(1);
@@ -2306,6 +2359,7 @@ async function loadSourceItems(
 
   const { loadExtraction } = await import("./extract/load");
   const { ensureSourceArtifact } = await import("./extract/source-loader");
+  const { queueProjectDocReview } = await import("./memory/project-doc-review");
   const { sql, testConnection } = await import("./db");
 
   console.log("\n[2/3] Loading into preserve schema...");
@@ -2330,6 +2384,9 @@ async function loadSourceItems(
         sql,
         item.sourceContent,
       );
+      if (item.sourceType === "project_doc") {
+        await queueProjectDocReview(sql, artifact.artifactId);
+      }
       factsCreated += result.factsCreated;
       segmentsCreated += result.segmentsCreated;
       if (result.warnings.length > 0) {
@@ -2459,6 +2516,18 @@ async function extractPaiAutoMemory(path: string, dryRun?: boolean): Promise<voi
     process.exit(1);
   }
   await loadSourceItems("PAI auto memory", items, dryRun);
+}
+
+async function extractProjectDocManifest(path: string, dryRun?: boolean): Promise<void> {
+  const { parseProjectDocManifest } = await import("./extract/project-doc-parser");
+  console.log("\n=== BrainCore Extract: Project Documentation ===\n");
+  console.log("[1/3] Parsing curated project documentation manifest...");
+  const items = await parseProjectDocManifest(path);
+  if (items.length === 0) {
+    console.error("No project documentation entries found; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("Project documentation", items, dryRun);
 }
 
 async function extractPersonalMemory(): Promise<void> {
