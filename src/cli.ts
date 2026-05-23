@@ -2360,6 +2360,7 @@ async function loadSourceItems(
   const { loadExtraction } = await import("./extract/load");
   const { ensureSourceArtifact } = await import("./extract/source-loader");
   const { queueProjectDocReview } = await import("./memory/project-doc-review");
+  const { queueAssistantMemoryReview } = await import("./memory/assistant-review");
   const { sql, testConnection } = await import("./db");
 
   console.log("\n[2/3] Loading into preserve schema...");
@@ -2386,6 +2387,8 @@ async function loadSourceItems(
       );
       if (item.sourceType === "project_doc") {
         await queueProjectDocReview(sql, artifact.artifactId);
+      } else if (item.sourceType === "vestige_memory" || item.sourceType === "pai_auto_memory") {
+        await queueAssistantMemoryReview(sql, artifact.artifactId);
       }
       factsCreated += result.factsCreated;
       segmentsCreated += result.segmentsCreated;

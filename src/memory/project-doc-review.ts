@@ -167,6 +167,41 @@ export async function applyProjectDocReviewDecisions(
       if (!target) throw new Error(`Project doc review row not found or not actionable: ${decision.reviewId}`);
 
       if (decision.decision === "rejected") {
+        const [publishedMemory] = await tx`
+          SELECT m.memory_id::text
+          FROM preserve.memory m
+          JOIN preserve.memory_support ms ON ms.memory_id = m.memory_id
+          JOIN preserve.fact f ON f.fact_id = ms.fact_id
+          JOIN preserve.extraction_run er ON er.run_id = f.created_run_id
+          WHERE er.artifact_id = ${target.artifact_id}
+            AND m.tenant = ${tenant}
+            AND ms.notes = 'project doc value review'
+            AND m.lifecycle_state != 'retired'::preserve.lifecycle_state
+          FOR UPDATE OF m
+          LIMIT 1
+        `;
+        if (publishedMemory) {
+          await tx`
+            DELETE FROM preserve.memory_support
+            WHERE memory_id = ${publishedMemory.memory_id}
+              AND notes = 'project doc value review'
+          `;
+          await tx`
+            UPDATE preserve.memory
+            SET governance_status = 'suppressed'::preserve.memory_governance_status,
+                lifecycle_state = 'retired'::preserve.lifecycle_state,
+                governance_meta = COALESCE(governance_meta, '{}'::jsonb) || ${tx.json(redactValue({
+                  projectDocReviewRejected: true,
+                  reviewId: decision.reviewId,
+                  rejectedAt: new Date().toISOString(),
+                  rejectedBy: options.actor ?? "braincore-cli",
+                  rejectionReason: decisionNotes(decision),
+                }) as any)}::jsonb,
+                updated_at = now()
+            WHERE memory_id = ${publishedMemory.memory_id}
+              AND tenant = ${tenant}
+          `;
+        }
         await tx`
           UPDATE preserve.review_queue
           SET status = 'rejected'::preserve.review_status,
@@ -177,6 +212,7 @@ export async function applyProjectDocReviewDecisions(
         await tx`
           UPDATE preserve.artifact
           SET can_promote_memory = false,
+              preservation_state = 'archived'::preserve.preservation_state,
               updated_at = now()
           WHERE artifact_id = ${target.artifact_id}
             AND tenant = ${tenant}
@@ -214,7 +250,7 @@ export async function applyProjectDocReviewDecisions(
       const confidence = clampConfidence(Math.max(...facts.map((fact: any) => Number(fact.confidence ?? 0.85))));
       const narrative = `${content.trim()}\n\nMateriality: ${materiality}\n\nRetrieval use case: ${retrievalUseCase}`;
       const tokenCount = estimateTokenCount(`${title}\n${narrative}`);
-      const fingerprint = sha256(`${tenant}|project-doc-review|${decision.reviewId}|${title}`);
+      const fingerprint = sha256(`${tenant}|project-doc-review|${decision.reviewId}`);
       const [memory] = await tx`
         INSERT INTO preserve.memory (
           memory_type, project_entity_id, tenant, fingerprint, title, narrative,

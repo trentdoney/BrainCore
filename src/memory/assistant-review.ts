@@ -207,6 +207,25 @@ export function renderAssistantReviewQueueMarkdown(rows: AssistantReviewRow[]): 
   return lines.join('\n').trimEnd() + '\n';
 }
 
+export async function queueAssistantMemoryReview(sql: postgres.Sql, artifactId: string, tenant = config.tenant): Promise<void> {
+  await sql`
+    INSERT INTO preserve.review_queue (target_type, target_id, reason, status)
+    SELECT 'artifact', ${artifactId}::uuid, ${ASSISTANT_REVIEW_REASON}, 'pending'::preserve.review_status
+    WHERE EXISTS (
+      SELECT 1 FROM preserve.artifact a
+      WHERE a.artifact_id = ${artifactId}::uuid
+        AND a.tenant = ${tenant}
+        AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM preserve.review_queue rq
+      WHERE rq.target_type = 'artifact'
+        AND rq.target_id = ${artifactId}::uuid
+        AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+    )
+  `;
+}
+
 export async function rejectAssistantMemoryReview(
   sql: postgres.Sql,
   reviewId: string,

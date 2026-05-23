@@ -113,4 +113,84 @@ describe("project doc review", () => {
     expect(calls.some((call) => call.query.includes("INSERT INTO preserve.memory_support"))).toBe(true);
     expect(calls.some((call) => call.query.includes("status = 'approved'::preserve.review_status"))).toBe(true);
   });
+
+  test("rejected approved decisions demote published project-doc memory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "braincore-project-doc-review-reject-"));
+    const path = join(dir, "decisions.json");
+    await writeFile(path, JSON.stringify({ decisions: [{
+      reviewId: "review-1",
+      decision: "rejected",
+      notes: "obsolete guidance",
+    }] }));
+    const { sql, calls } = makeSql((query) => {
+      if (query.includes("FROM preserve.review_queue rq")) return [{
+        review_id: "review-1",
+        review_status: "approved",
+        artifact_id: "artifact-1",
+        source_key: "project_doc:example_project:authority-model:abc",
+        scope_path: "project:example_project/doc:authority-model",
+        project_entity_id: null,
+        original_path: "/ops/README.md",
+      }];
+      if (query.includes("FROM preserve.memory m")) return [{ memory_id: "memory-1" }];
+      return [];
+    });
+
+    const result = await applyProjectDocReviewDecisions(sql, path, { actor: "test" });
+
+    expect(result).toEqual({ approved: 0, rejected: 1, memories: [] });
+    expect(calls.some((call) => call.query.includes("DELETE FROM preserve.memory_support"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("governance_status = 'suppressed'"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("lifecycle_state = 'retired'"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("status = 'rejected'::preserve.review_status"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("preservation_state = 'archived'"))).toBe(true);
+  });
+
+  test("project-doc re-approvals use a stable review fingerprint independent of title", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "braincore-project-doc-review-fingerprint-"));
+    const firstPath = join(dir, "first.json");
+    const secondPath = join(dir, "second.json");
+    const baseDecision = {
+      reviewId: "review-1",
+      decision: "approved",
+      content: "The task tracker owns task state while local runtime owners govern execution state.",
+      materiality: "Prevents agents from treating stale legacy control-plane docs as current.",
+      retrievalUseCase: "Inject when an agent opens example_project or asks what controls task and runtime state.",
+    };
+    await writeFile(firstPath, JSON.stringify({ decisions: [{ ...baseDecision, title: "Example project authority model" }] }));
+    await writeFile(secondPath, JSON.stringify({ decisions: [{ ...baseDecision, title: "Edited example project authority model" }] }));
+    const fingerprints: string[] = [];
+    const { sql } = makeSql((query, values) => {
+      if (query.includes("FROM preserve.review_queue rq")) return [{
+        review_id: "review-1",
+        review_status: "approved",
+        artifact_id: "artifact-1",
+        source_key: "project_doc:example_project:authority-model:abc",
+        scope_path: "project:example_project/doc:authority-model",
+        project_entity_id: null,
+        original_path: "/ops/README.md",
+      }];
+      if (query.includes("JOIN preserve.fact f")) return [{
+        fact_id: "fact-1",
+        episode_id: "episode-1",
+        predicate: "runtime_authority",
+        object_value: "The legacy scheduler is retired.",
+        confidence: 0.94,
+        priority: 2,
+        created_at: "2026-05-22",
+      }];
+      if (query.includes("INSERT INTO preserve.memory (")) {
+        fingerprints.push(values[2] as string);
+        return [{ memory_id: "memory-1" }];
+      }
+      return [];
+    });
+
+    await applyProjectDocReviewDecisions(sql, firstPath, { actor: "test" });
+    await applyProjectDocReviewDecisions(sql, secondPath, { actor: "test" });
+
+    expect(fingerprints.length).toBe(2);
+    expect(fingerprints[1]).toBe(fingerprints[0]);
+  });
+
 });

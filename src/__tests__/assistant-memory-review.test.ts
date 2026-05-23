@@ -9,6 +9,7 @@ import {
   promoteAssistantMemoryReview,
   rejectAssistantMemoryReview,
   renderAssistantReviewQueueMarkdown,
+  queueAssistantMemoryReview,
 } from "../memory/assistant-review";
 
 function makeSql(resolver: (query: string, values: unknown[]) => unknown[] | Promise<unknown[]>) {
@@ -44,6 +45,17 @@ describe("assistant memory review", () => {
     expect(calls[0].query).toContain("preserve.review_queue");
     expect(calls[0].query).toContain("JOIN preserve.artifact");
     expect(calls[0].values).toContain("assistant_memory_import_review");
+  });
+
+  test("queues assistant memory imports for review only for assistant source artifacts", async () => {
+    const { sql, calls } = makeSql(() => []);
+
+    await queueAssistantMemoryReview(sql, "00000000-0000-4000-8000-000000000001", "tenant-a");
+
+    expect(calls[0].query).toContain("preserve.review_queue");
+    expect(calls[0].values).toContain("assistant_memory_import_review");
+    expect(calls[0].query).toContain("a.source_type = ANY");
+    expect(calls[0].values).toContain("tenant-a");
   });
 
   test("rejects only assistant memory import artifacts for the active tenant", async () => {
