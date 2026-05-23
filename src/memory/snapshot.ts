@@ -94,11 +94,26 @@ export async function buildBrainCoreSnapshot(
 
 export function resolveSnapshotDomains(cwd: string, gitRoot?: string | null, _prompt?: string): string[] {
   const values: string[] = [];
-  const match = cwd.match(/(?:^|\/)10_projects\/([^/]+)/) ?? gitRoot?.match(/(?:^|\/)10_projects\/([^/]+)/);
-  if (match?.[1]) values.push(match[1]);
+  const markerMatch = findProjectMarkerDomain(cwd) ?? (gitRoot ? findProjectMarkerDomain(gitRoot) : null);
+  if (markerMatch) values.push(markerMatch);
   const rootName = gitRoot ? basename(gitRoot) : basename(cwd);
   if (rootName && rootName !== "." && rootName !== "/") values.push(rootName);
   return [...new Set(values.map(sanitizeDomain).filter(Boolean))];
+}
+
+function findProjectMarkerDomain(inputPath: string): string | null {
+  const markers = (process.env.BRAINCORE_PROJECT_DOMAIN_MARKERS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (markers.length === 0) return null;
+
+  const segments = inputPath.split(/[\/]+/).filter(Boolean);
+  for (const marker of markers) {
+    const index = segments.indexOf(marker);
+    if (index >= 0 && segments[index + 1]) return segments[index + 1];
+  }
+  return null;
 }
 
 export function renderBrainCoreSnapshot(

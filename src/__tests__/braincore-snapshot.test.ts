@@ -13,6 +13,24 @@ describe("BrainCore snapshot", () => {
     expect(domains).not.toContain("braincore");
   });
 
+  test("infers configured project marker domains without hard-coded workspace paths", () => {
+    const previous = process.env.BRAINCORE_PROJECT_DOMAIN_MARKERS;
+    process.env.BRAINCORE_PROJECT_DOMAIN_MARKERS = "workspaces";
+    try {
+      const domains = resolveSnapshotDomains(
+        "/workspace/workspaces/memory/docs",
+        "/workspace/repo-root",
+      );
+      expect(domains).toEqual(["memory", "repo-root"]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.BRAINCORE_PROJECT_DOMAIN_MARKERS;
+      } else {
+        process.env.BRAINCORE_PROJECT_DOMAIN_MARKERS = previous;
+      }
+    }
+  });
+
   test("renders no-results gate without pretending imports are prompt eligible", () => {
     const recall: ContextRecallResult = {
       trigger: "braincore_snapshot",

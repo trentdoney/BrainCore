@@ -20,7 +20,7 @@ what the repo actually ships:
 4. Do not turn the example MCP server into a claim that the repo ships a
    larger tool surface than it does.
 5. Keep the launch truth surface aligned: `001` through `021`,
-   `45-table preserve schema`, `v1.1.6`, and the committed benchmark
+   `50-table preserve schema`, `v1.2.0`, and the committed benchmark
    artifacts.
 6. Do not add, replace, regenerate, compress, optimize, or overwrite image
    assets unless the human owner supplied the final approved asset for this PR.
