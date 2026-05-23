@@ -17,7 +17,7 @@ describe("BrainCore shadow eval", () => {
     sql.json = (value: unknown) => value;
 
     const result = await runBrainCoreShadowEval(sql, [{
-      name: "memory", cwd: "/repo/10_projects/Memory", gitRoot: "/repo", prompt: "braincore memory", expectedTerms: ["BrainCore native"], forbiddenTerms: ["forbidden"], maxTokens: 500,
+      name: "memory", cwd: "/workspace/memory", prompt: "braincore memory", expectedTerms: ["BrainCore native"], forbiddenTerms: ["forbidden"], maxTokens: 500,
     }]);
 
     expect(result.total).toBe(1);
@@ -38,8 +38,8 @@ describe("BrainCore shadow eval", () => {
     sql.json = (value: unknown) => value;
 
     const result = await runBrainCoreShadowEval(sql, [
-      { name: "positive", cwd: "/repo/10_projects/Memory", gitRoot: "/repo", prompt: "braincore memory", expectedTerms: ["BrainCore native"], maxTokens: 500 },
-      { name: "negative", cwd: "/repo/10_projects/OpenAOS", gitRoot: "/repo", prompt: "unrelated persona workflow", expectEmpty: true, forbiddenTerms: ["BrainCore native"], maxTokens: 500 },
+      { name: "positive", cwd: "/workspace/memory", prompt: "braincore memory", expectedTerms: ["BrainCore native"], maxTokens: 500 },
+      { name: "negative", cwd: "/workspace/unrelated-demo", prompt: "unrelated persona workflow", expectEmpty: true, forbiddenTerms: ["BrainCore native"], maxTokens: 500 },
     ]);
 
     expect(result.total).toBe(2);

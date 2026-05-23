@@ -5,8 +5,8 @@ import type { ContextRecallResult } from "../memory/governance";
 describe("BrainCore snapshot", () => {
   test("infers workspace project domain from cwd", () => {
     const domains = resolveSnapshotDomains(
-      "/repo/10_projects/Memory",
-      "/repo/repo",
+      "/workspace/memory",
+      undefined,
       "braincore memory runtime",
     );
     expect(domains).toContain("memory");
@@ -25,7 +25,7 @@ describe("BrainCore snapshot", () => {
     };
 
     const markdown = renderBrainCoreSnapshot(
-      { cwd: "/repo/10_projects/Memory", gitRoot: "/repo/repo", mode: "shadow" },
+      { cwd: "/workspace/memory", gitRoot: "/workspace/braincore-demo", mode: "shadow" },
       ["memory"],
       recall,
     );
@@ -40,8 +40,8 @@ describe("BrainCore snapshot", () => {
     const sql = (() => Promise.resolve([])) as any;
     sql.json = (value: unknown) => value;
     const result = await (await import("../memory/snapshot")).buildBrainCoreSnapshot(sql, {
-      cwd: "/repo/10_projects/Memory",
-      gitRoot: "/repo",
+      cwd: "/workspace/memory",
+      gitRoot: "/workspace/memory",
       prompt: "memory ".repeat(200),
       mode: "shadow",
       maxTokens: 40,
@@ -54,11 +54,11 @@ describe("BrainCore snapshot", () => {
 
   test("does not treat prompt words as candidate domains", () => {
     const domains = resolveSnapshotDomains(
-      "/repo/10_projects/Memory",
-      "/repo/ProjectRoot",
+      "/workspace/memory",
+      "/workspace/project-root",
       "For verification only inspect Codex shared memory snapshot",
     );
-    expect(domains).toEqual(["memory", "projectroot"]);
+    expect(domains).toEqual(["project-root"]);
   });
 
   test("profile budgets cap max-token overrides", () => {
@@ -89,8 +89,8 @@ describe("BrainCore snapshot", () => {
     };
 
     const markdown = renderBrainCoreSnapshot(
-      { cwd: "/repo/10_projects/Memory", gitRoot: "/repo/ProjectRoot", mode: "shadow", profile: "compact" },
-      ["memory", "projectroot"],
+      { cwd: "/workspace/memory", gitRoot: "/workspace/project-root", mode: "shadow", profile: "compact" },
+      ["memory", "project-root"],
       recall,
       "compact",
     );
