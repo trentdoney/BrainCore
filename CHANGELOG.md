@@ -4,6 +4,8 @@ All notable changes to BrainCore are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-23
+
 ### Added
 - Added additive memory governance migration `022_memory_governance.sql` with prompt recall, feedback, quality audit, context audit, lifecycle outbox, cue, compaction, and source attribution support.
 - Added additive assistant memory source migration `023_assistant_memory_sources.sql`

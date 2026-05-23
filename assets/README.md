@@ -8,8 +8,8 @@ active assets should be referenced by public docs.
 | File | Status | Dimensions | Format | Usage |
 |---|---|---|---|---|
 | `og.jpg` | Active | 1672 by 941 | JPEG | README hero block and social preview source |
-| `lifecycle-control-flow.jpg` | Active | 1672 by 941 | JPEG | README lifecycle control flow overview |
-| `architecture.jpg` | Active | 1672 by 941 | JPEG | README architecture section |
+| `lifecycle-control-flow.jpg` | Active | 1671 by 941 | JPEG | README lifecycle control flow overview |
+| `architecture.jpg` | Active | 1671 by 941 | JPEG | README architecture section |
 | `maintained-by-trent.jpg` | Active | 1200 by 397 | JPEG | README author note banner |
 | `manifest.json` | Reference | n/a | JSON | Hash and dimension manifest |
 | `README.md` | Reference | n/a | Markdown | Asset notes |

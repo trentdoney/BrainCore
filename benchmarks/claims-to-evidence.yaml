@@ -272,20 +272,21 @@
     the single source of truth for the fusion k parameter. Source-tree
     invariant.
 
-- claim: "9 deterministic parsers"
+- claim: "12 deterministic source parsers"
   source: "src/extract"
   source_type: "file_lines"
   glob: "*-parser.ts"
-  expected: 9
+  expected: 12
   tolerance: 0
   framing: "smoke-regression"
   notes: >
     Counts files matching src/extract/*-parser.ts. Current set:
     asana-parser.ts, codex-parser.ts, codex-shared-parser.ts,
     discord-parser.ts, git-parser.ts, grafana-parser.ts,
-    personal-memory-parser.ts, session-parser.ts, telegram-parser.ts. deterministic.ts,
+    pai-auto-memory-parser.ts, personal-memory-parser.ts, project-doc-parser.ts,
+    session-parser.ts, telegram-parser.ts, vestige-parser.ts. deterministic.ts,
     semantic.ts, load.ts, project-resolver.ts, quality-gate.ts, verify.ts are
-    infrastructure files, not parsers. Source-tree invariant.
+    infrastructure files, not source parsers. Source-tree invariant.
 
 - claim: "PostgreSQL 15+ (tested on 16)"
   source: "benchmarks/README.md"
