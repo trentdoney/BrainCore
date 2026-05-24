@@ -209,6 +209,20 @@ export function renderAssistantReviewQueueMarkdown(rows: AssistantReviewRow[]): 
 
 export async function queueAssistantMemoryReview(sql: postgres.Sql, artifactId: string, tenant = config.tenant): Promise<void> {
   await sql`
+    UPDATE preserve.review_queue rq
+    SET status = 'pending'::preserve.review_status,
+        reviewer_notes = 'requeued after refreshed assistant memory import',
+        resolved_at = NULL
+    FROM preserve.artifact a
+    WHERE rq.target_type = 'artifact'
+      AND rq.target_id = a.artifact_id
+      AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+      AND rq.status = 'rejected'::preserve.review_status
+      AND a.artifact_id = ${artifactId}::uuid
+      AND a.tenant = ${tenant}
+      AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
+  `;
+  await sql`
     INSERT INTO preserve.review_queue (target_type, target_id, reason, status)
     SELECT 'artifact', ${artifactId}::uuid, ${ASSISTANT_REVIEW_REASON}, 'pending'::preserve.review_status
     WHERE EXISTS (
@@ -229,25 +243,79 @@ export async function queueAssistantMemoryReview(sql: postgres.Sql, artifactId: 
 export async function rejectAssistantMemoryReview(
   sql: postgres.Sql,
   reviewId: string,
-  options: { tenant?: string; notes?: string; suppressed?: boolean } = {},
+  options: { tenant?: string; notes?: string; suppressed?: boolean; actor?: string } = {},
 ): Promise<boolean> {
   const tenant = options.tenant ?? config.tenant;
   const notes = options.suppressed ? `suppressed: ${options.notes ?? "not prompt eligible"}` : options.notes ?? "rejected";
-  const rows = await sql`
-    UPDATE preserve.review_queue rq
-    SET status = 'rejected'::preserve.review_status,
-        reviewer_notes = ${notes},
-        resolved_at = now()
-    FROM preserve.artifact a
-    WHERE rq.review_id = ${reviewId}
-      AND rq.target_type = 'artifact'
-      AND rq.target_id = a.artifact_id
-      AND rq.reason = ${ASSISTANT_REVIEW_REASON}
-      AND a.tenant = ${tenant}
-      AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
-    RETURNING rq.review_id
-  `;
-  return rows.length > 0;
+  return sql.begin(async (tx) => {
+    const [target] = await tx`
+      SELECT rq.review_id::text, rq.status::text AS review_status, a.artifact_id::text
+      FROM preserve.review_queue rq
+      JOIN preserve.artifact a ON a.artifact_id = rq.target_id
+      WHERE rq.review_id = ${reviewId}
+        AND rq.target_type = 'artifact'
+        AND rq.reason = ${ASSISTANT_REVIEW_REASON}
+        AND rq.status IN ('pending'::preserve.review_status,'approved'::preserve.review_status)
+        AND a.tenant = ${tenant}
+        AND a.source_type = ANY(${ASSISTANT_MEMORY_SOURCE_TYPES}::preserve.source_type[])
+      FOR UPDATE OF rq, a
+      LIMIT 1
+    `;
+    if (!target) return false;
+
+    const [publishedMemory] = await tx`
+      SELECT m.memory_id::text
+      FROM preserve.memory m
+      JOIN preserve.memory_support ms ON ms.memory_id = m.memory_id
+      JOIN preserve.fact f ON f.fact_id = ms.fact_id
+      JOIN preserve.extraction_run er ON er.run_id = f.created_run_id
+      WHERE er.artifact_id = ${target.artifact_id}
+        AND m.tenant = ${tenant}
+        AND ms.notes = 'assistant memory import review'
+        AND m.lifecycle_state != 'retired'::preserve.lifecycle_state
+      FOR UPDATE OF m
+      LIMIT 1
+    `;
+    if (publishedMemory) {
+      await tx`
+        DELETE FROM preserve.memory_support
+        WHERE memory_id = ${publishedMemory.memory_id}
+          AND notes = 'assistant memory import review'
+      `;
+      await tx`
+        UPDATE preserve.memory
+        SET governance_status = 'suppressed'::preserve.memory_governance_status,
+            lifecycle_state = 'retired'::preserve.lifecycle_state,
+            governance_meta = COALESCE(governance_meta, '{}'::jsonb) || ${tx.json(redactValue({
+              assistantImportRejected: true,
+              reviewId,
+              rejectedAt: new Date().toISOString(),
+              rejectedBy: options.actor ?? "braincore-cli",
+              rejectionReason: notes,
+            }) as any)}::jsonb,
+            updated_at = now()
+        WHERE memory_id = ${publishedMemory.memory_id}
+          AND tenant = ${tenant}
+      `;
+    }
+
+    await tx`
+      UPDATE preserve.review_queue
+      SET status = 'rejected'::preserve.review_status,
+          reviewer_notes = ${notes},
+          resolved_at = now()
+      WHERE review_id = ${reviewId}
+    `;
+    await tx`
+      UPDATE preserve.artifact
+      SET can_promote_memory = false,
+          preservation_state = 'archived'::preserve.preservation_state,
+          updated_at = now()
+      WHERE artifact_id = ${target.artifact_id}
+        AND tenant = ${tenant}
+    `;
+    return true;
+  });
 }
 
 function isUuid(value: unknown): value is string {
@@ -442,6 +510,14 @@ export async function demoteAssistantMemoryPromotion(
         AND tenant = ${tenant}
         AND source_class = 'imported_knowledge'::preserve.memory_source_class
         AND trust_class = 'human_curated'::preserve.memory_trust_class
+        AND (
+          governance_meta->>'assistantImport' = 'true'
+          OR EXISTS (
+            SELECT 1 FROM preserve.memory_support ms
+            WHERE ms.memory_id = preserve.memory.memory_id
+              AND ms.notes = 'assistant memory import review'
+          )
+        )
       FOR UPDATE
       LIMIT 1
     `;

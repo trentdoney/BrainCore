@@ -47,27 +47,36 @@ describe("assistant memory review", () => {
     expect(calls[0].values).toContain("assistant_memory_import_review");
   });
 
-  test("queues assistant memory imports for review only for assistant source artifacts", async () => {
+  test("queues assistant memory imports and reopens rejected reviews for refreshed imports", async () => {
     const { sql, calls } = makeSql(() => []);
 
     await queueAssistantMemoryReview(sql, "00000000-0000-4000-8000-000000000001", "tenant-a");
 
-    expect(calls[0].query).toContain("preserve.review_queue");
+    expect(calls[0].query).toContain("status = 'pending'::preserve.review_status");
+    expect(calls[0].query).toContain("rq.status = 'rejected'::preserve.review_status");
     expect(calls[0].values).toContain("assistant_memory_import_review");
-    expect(calls[0].query).toContain("a.source_type = ANY");
-    expect(calls[0].values).toContain("tenant-a");
+    expect(calls[1].query).toContain("INSERT INTO preserve.review_queue");
+    expect(calls[1].query).toContain("a.source_type = ANY");
+    expect(calls[1].values).toContain("tenant-a");
   });
 
-  test("rejects only assistant memory import artifacts for the active tenant", async () => {
-    const { sql, calls } = makeSql(() => [{ review_id: "review-1" }]);
+  test("rejects assistant memory review and demotes any approved prompt memory", async () => {
+    const { sql, calls } = makeSql((query) => {
+      if (query.includes("FROM preserve.review_queue rq")) return [{ review_id: "review-1", review_status: "approved", artifact_id: "artifact-1" }];
+      if (query.includes("FROM preserve.memory m")) return [{ memory_id: "memory-1" }];
+      return [];
+    });
 
-    const updated = await rejectAssistantMemoryReview(sql, "review-1", { notes: "not useful" });
+    const updated = await rejectAssistantMemoryReview(sql, "review-1", { notes: "not useful", actor: "test" });
 
     expect(updated).toBe(true);
-    expect(calls[0].query).toContain("UPDATE preserve.review_queue");
-    expect(calls[0].query).toContain("FROM preserve.artifact");
-    expect(calls[0].query).toContain("a.tenant");
-    expect(calls[0].values).toContain("not useful");
+    expect(calls.some((call) => call.query.includes("rq.status IN ('pending'::preserve.review_status,'approved'::preserve.review_status)"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("DELETE FROM preserve.memory_support"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("governance_status = 'suppressed'"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("lifecycle_state = 'retired'"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("status = 'rejected'::preserve.review_status"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("preservation_state = 'archived'"))).toBe(true);
+    expect(calls.some((call) => call.values.includes("not useful"))).toBe(true);
   });
 
   test("promotion writes governed prompt memory, support links, review approval, and artifact eligibility", async () => {
@@ -165,12 +174,12 @@ describe("assistant memory review", () => {
     expect(markdown).toContain("pai:1");
   });
 
-  test("demotion suppresses prompt memory and resets review for re-review", async () => {
+  test("demotion suppresses assistant-import prompt memory and resets review for re-review", async () => {
     const { sql, calls } = makeSql((query) => {
       if (query.includes("FROM preserve.memory") && query.includes("FOR UPDATE")) {
         return [{
           memory_id: "memory-1",
-          governance_meta: { reviewId: "11111111-1111-4111-8111-111111111111", sourceKey: "pai:1" },
+          governance_meta: { assistantImport: true, reviewId: "11111111-1111-4111-8111-111111111111", sourceKey: "pai:1" },
           governance_status: "validated",
           source_class: "imported_knowledge",
           trust_class: "human_curated",
@@ -187,7 +196,13 @@ describe("assistant memory review", () => {
     expect(result.reviewId).toBe("11111111-1111-4111-8111-111111111111");
     expect(calls.some((call) => call.query.includes("governance_status = 'suppressed'"))).toBe(true);
     expect(calls.some((call) => call.query.includes("status = 'pending'::preserve.review_status"))).toBe(true);
-    expect(calls.some((call) => call.query.includes("can_promote_memory = false"))).toBe(true);
+    expect(calls.some((call) => call.query.includes("governance_meta->>'assistantImport' = 'true'"))).toBe(true);
+  });
+
+  test("demotion refuses non-assistant imported memories", async () => {
+    const { sql } = makeSql(() => []);
+
+    await expect(demoteAssistantMemoryPromotion(sql, "memory-1", { notes: "wrong workflow" })).rejects.toThrow("not found");
   });
 
   test("demotion recovers review through support links when metadata was redacted", async () => {
