@@ -4,10 +4,21 @@ All notable changes to BrainCore are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-23
+
 ### Added
 - Added additive memory governance migration `022_memory_governance.sql` with prompt recall, feedback, quality audit, context audit, lifecycle outbox, cue, compaction, and source attribution support.
+- Added additive assistant memory source migration `023_assistant_memory_sources.sql`
+  with `vestige_memory` and `pai_auto_memory` source types for deterministic
+  assistant-memory migration sources.
 - Added governed memory CLI commands for event ingestion, recall/read auditing, status updates, feedback, compaction, conflict detection, and source attribution.
 - Added memory governance policy checks to CI and local sanitization coverage.
+- Added assistant memory import review commands so imported assistant memories
+  stay non-prompt-eligible until operator review and memory governance approve
+  promotion.
+- Added audited BrainCore snapshot builds with compact, risk, and deep preload
+  profiles.
+- Added BrainCore shadow-eval support for snapshot behavior checks.
 
 ### Fixed
 - Governed prompt search now excludes archived, quarantined, suppressed, retired, and retired-superseded memories by default while preserving an explicit operator inspection override.
@@ -24,7 +35,7 @@ All notable changes to BrainCore are documented in this file.
 - Added CLI and MCP-first lifecycle administration surfaces. The browser/admin
   web app remains a future upgrade path.
 - The open-source preserve schema is now documented as 50 tables after
-  migrations `001` through `022` plus the runtime migration ledger bootstrap.
+  migrations `001` through `023` plus the runtime migration ledger bootstrap.
 - Lifecycle `suppressed` and `retired` overlays are enforced in retrieval and
   procedure search paths without mutating BrainCore native truth rows.
 - Memory governance metadata, lifecycle sensitivity/redaction values, and cue

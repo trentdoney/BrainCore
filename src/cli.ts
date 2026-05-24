@@ -38,6 +38,9 @@ function printUsage(): void {
   console.log("    --grafana          Extract Grafana dashboards/alerts");
   console.log("    --asana-export <path> Extract exported Asana task JSON/JSONL");
   console.log("    --git-commits <repo-or-export> Extract local git commits or exported JSON/JSONL");
+  console.log("    --vestige-export <path> Extract Vestige JSON/JSONL memory export");
+  console.log("    --pai-auto-memory <dir> Extract PAI auto-memory markdown files");
+  console.log("    --project-doc-manifest <path> Extract curated project documentation manifest");
   console.log("    --since <ref>      Git ref for --git-commits repo scans");
   console.log("    --pending          Extract all pending artifacts");
   console.log("    --use-claude       Escalate to Claude CLI for semantic");
@@ -84,6 +87,7 @@ function printUsage(): void {
   console.log("    backfill-intelligence  Add lifecycle intelligence rows for existing targets");
   console.log("    stats              Show lifecycle outbox/intelligence counts");
   console.log("  memory               Lifecycle admin surface for memory targets");
+  console.log("  snapshot             Build an audited BrainCore memory snapshot");
   console.log("    status-set         Set lifecycle intelligence status only");
   console.log("    feedback-record    Record lifecycle feedback and score audit");
   console.log("  context              Context recall audit surface");
@@ -103,7 +107,7 @@ function printUsage(): void {
   console.log("    --vacuum           VACUUM ANALYZE core tables");
   console.log("    --detect-stale     Detect & demote stale memories");
   console.log("    --stats            Show table counts, index sizes, staleness");
-  console.log("  migrate              Run database migrations 001-021");
+  console.log("  migrate              Run database migrations 001-024");
   console.log("  help, --help, -h     Show this help message");
 }
 
@@ -211,6 +215,17 @@ function printMemoryAdminUsage(): void {
   console.log("  event --process [--limit <n>]");
   console.log("  event --prune [--before <iso-date>]");
   console.log("  recall --trigger <name> [--goal <text>] [--cue <text>] [--max-tokens <n>] [--mode shadow|eval|default_on|off]");
+  console.log("  assistant-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  project-doc-review list [--status pending|approved|rejected|deferred] [--limit <n>]");
+  console.log("  project-doc-review export [--status pending] [--limit <n>] [--json]");
+  console.log("  project-doc-review apply-decisions --decisions <path> [--actor <name>]");
+  console.log("  assistant-review stats");
+  console.log("  assistant-review show --review-id <uuid> [--fact-limit <n>]");
+  console.log("  assistant-review export [--status pending] [--limit <n>]");
+  console.log("  assistant-review approve --review-id <uuid> [--scope <scope>] [--notes <text>]");
+  console.log("  assistant-review reject --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review suppress --review-id <uuid> [--notes <text>]");
+  console.log("  assistant-review demote --memory-id <uuid> [--notes <text>]");
   console.log("  read --memory-id <id> [--max-tokens <n>]");
   console.log("  status --memory-id <id> --set <status> [--reason <text>]");
   console.log("  feedback --memory-id <id> --signal <signal> [--outcome <text>]");
@@ -229,6 +244,20 @@ function printContextUsage(): void {
   console.log("");
   console.log("Options:");
   console.log("  --goal <text> --scope <path> --session-key <key> --injected --total-tokens <n>");
+}
+
+function printSnapshotUsage(): void {
+  console.log("Usage: braincore snapshot build --cwd <path> [options]");
+  console.log("");
+  console.log("Options:");
+  console.log("  --git-root <path>       Repository root used for domain inference");
+  console.log("  --prompt <text>         Goal or task prompt used as recall cues");
+  console.log("  --mode shadow|eval|default_on|off");
+  console.log("  --profile compact|risk|deep");
+  console.log("  --max-tokens <n>        Recall budget (default 3000)");
+  console.log("  --limit <n>             Result limit (default 20)");
+  console.log("  --json                  Print structured result instead of markdown");
+  console.log("  snapshot eval --case-json <path> [--json]");
 }
 
 // Handle help flags explicitly BEFORE the commands[] dispatch so they never
@@ -275,6 +304,11 @@ if (command === "memory" && isHelpArg(args[0])) {
 
 if (command === "context" && isHelpArg(args[0])) {
   printContextUsage();
+  process.exit(0);
+}
+
+if (command === "snapshot" && isHelpArg(args[0])) {
+  printSnapshotUsage();
   process.exit(0);
 }
 
@@ -335,6 +369,9 @@ const commands: Record<string, () => Promise<void>> = {
     const grafana = hasFlag("grafana");
     const asanaExport = getFlag("asana-export");
     const gitCommits = getFlag("git-commits");
+    const vestigeExport = getFlag("vestige-export");
+    const paiAutoMemory = getFlag("pai-auto-memory");
+    const projectDocManifest = getFlag("project-doc-manifest");
     const since = getFlag("since");
 
     if (sessionPath) {
@@ -382,6 +419,21 @@ const commands: Record<string, () => Promise<void>> = {
       return;
     }
 
+    if (vestigeExport) {
+      await extractVestigeExport(vestigeExport, dryRun);
+      return;
+    }
+
+    if (paiAutoMemory) {
+      await extractPaiAutoMemory(paiAutoMemory, dryRun);
+      return;
+    }
+
+    if (projectDocManifest) {
+      await extractProjectDocManifest(projectDocManifest, dryRun);
+      return;
+    }
+
     if (!incidentPath && !pending) {
       console.error(
         "Usage: braincore extract --incident <path> [--use-claude] [--skip-semantic] [--dry-run]",
@@ -415,6 +467,15 @@ const commands: Record<string, () => Promise<void>> = {
       );
       console.error(
         "       braincore extract --git-commits <repo-or-export> [--since <ref>] [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --vestige-export <path> [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --pai-auto-memory <dir> [--dry-run]",
+      );
+      console.error(
+        "       braincore extract --project-doc-manifest <path> [--dry-run]",
       );
     }
 
@@ -920,6 +981,67 @@ const commands: Record<string, () => Promise<void>> = {
     process.exit(1);
   },
 
+  snapshot: async () => {
+    const subcommand = args[0];
+    if (subcommand === "eval") {
+      const caseJson = getFlag("case-json");
+      if (!caseJson) {
+        console.error("Usage: braincore snapshot eval --case-json <path> [--json]");
+        process.exit(1);
+      }
+      const { readFile } = await import("fs/promises");
+      const { sql, testConnection } = await import("./db");
+      const { runBrainCoreShadowEval } = await import("./memory/shadow-eval");
+      const connected = await testConnection();
+      if (!connected) { process.exit(1); }
+      try {
+        const cases = JSON.parse(await readFile(caseJson, "utf8"));
+        if (!Array.isArray(cases)) throw new Error("case-json must contain an array");
+        const result = await runBrainCoreShadowEval(sql, cases);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.passed && !hasFlag("no-fail")) process.exitCode = 1;
+      } finally {
+        await sql.end();
+      }
+      return;
+    }
+
+    if (subcommand !== "build") {
+      printSnapshotUsage();
+      process.exit(subcommand && !isHelpArg(subcommand) ? 1 : 0);
+    }
+    const cwd = getFlag("cwd");
+    if (!cwd) {
+      console.error("Usage: braincore snapshot build --cwd <path> [--prompt <text>]");
+      process.exit(1);
+    }
+    const { sql, testConnection } = await import("./db");
+    const { buildBrainCoreSnapshot } = await import("./memory/snapshot");
+    const connected = await testConnection();
+    if (!connected) { process.exit(1); }
+    try {
+      const profile = getFlag("profile");
+      if (profile && !["compact", "risk", "deep"].includes(profile)) {
+        console.error("Invalid snapshot profile. Expected compact, risk, or deep.");
+        process.exit(1);
+      }
+      const maxTokens = Number(getFlag("max-tokens") ?? "0");
+      const limit = Number(getFlag("limit") ?? "20");
+      const result = await buildBrainCoreSnapshot(sql, {
+        cwd,
+        gitRoot: getFlag("git-root"),
+        prompt: getFlag("prompt"),
+        maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : undefined,
+        mode: (getFlag("mode") as import("./memory/governance").ContextInjectionMode | undefined) ?? "shadow",
+        limit: Number.isFinite(limit) ? limit : 20,
+        profile: profile as import("./memory/snapshot").BrainCoreSnapshotProfile | undefined,
+      });
+      console.log(hasFlag("json") ? JSON.stringify(result, null, 2) : result.markdown);
+    } finally {
+      await sql.end();
+    }
+  },
+
   memory: async () => {
     const subcommand = args[0];
     if (!subcommand || isHelpArg(subcommand)) {
@@ -931,6 +1053,151 @@ const commands: Record<string, () => Promise<void>> = {
     console.log("\n=== BrainCore Memory Admin ===\n");
     const connected = await testConnection();
     if (!connected) { process.exit(1); }
+
+    if (subcommand === "assistant-review") {
+      const action = args[1] ?? "list";
+      const {
+        assistantMemoryReviewStats,
+        demoteAssistantMemoryPromotion,
+        getAssistantMemoryReview,
+        listAssistantMemoryReviews,
+        promoteAssistantMemoryReview,
+        rejectAssistantMemoryReview,
+        renderAssistantReviewQueueMarkdown,
+      } = await import("./memory/assistant-review");
+
+      if (action === "list") {
+        const limit = Number(getFlag("limit") ?? "50");
+        const rows = await listAssistantMemoryReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : 50,
+        });
+        console.log(JSON.stringify(rows, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "stats") {
+        const stats = await assistantMemoryReviewStats(sql);
+        console.log(JSON.stringify(stats, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "show") {
+        const reviewId = getFlag("review-id");
+        if (!reviewId) {
+          console.error("Usage: braincore memory assistant-review show --review-id <uuid> [--fact-limit <n>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const factLimit = Number(getFlag("fact-limit") ?? "20");
+        const detail = await getAssistantMemoryReview(sql, reviewId, { factLimit: Number.isFinite(factLimit) ? factLimit : 20 });
+        console.log(JSON.stringify(detail, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "export") {
+        const limit = Number(getFlag("limit") ?? "200");
+        const rows = await listAssistantMemoryReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : 200,
+        });
+        console.log(hasFlag("json") ? JSON.stringify(rows, null, 2) : renderAssistantReviewQueueMarkdown(rows));
+        await sql.end();
+        return;
+      }
+
+      if (action === "demote" || action === "rollback") {
+        const memoryId = getFlag("memory-id");
+        if (!memoryId) {
+          console.error("Usage: braincore memory assistant-review demote --memory-id <uuid> [--notes <text>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const result = await demoteAssistantMemoryPromotion(sql, memoryId, {
+          notes: getFlag("notes"),
+          actor: getFlag("actor") ?? "braincore-cli",
+        });
+        console.log(JSON.stringify(result, null, 2));
+        await sql.end();
+        return;
+      }
+
+      const reviewId = getFlag("review-id");
+      if (!reviewId) {
+        console.error("Usage: braincore memory assistant-review <approve|reject|suppress> --review-id <uuid> [--scope <scope>] [--notes <text>]");
+        await sql.end();
+        process.exit(1);
+      }
+
+      if (action === "approve" || action === "promote") {
+        const result = await promoteAssistantMemoryReview(sql, reviewId, {
+          notes: getFlag("notes"),
+          actor: getFlag("actor") ?? "braincore-cli",
+          scopePath: getFlag("scope"),
+        });
+        console.log(JSON.stringify(result, null, 2));
+        await sql.end();
+        return;
+      }
+
+      if (action === "reject" || action === "suppress") {
+        const updated = await rejectAssistantMemoryReview(sql, reviewId, {
+          notes: getFlag("notes"),
+          suppressed: action === "suppress",
+        });
+        console.log(JSON.stringify({ reviewId, updated }, null, 2));
+        await sql.end();
+        return;
+      }
+
+      console.error(`Unknown assistant-review action: ${action}`);
+      printMemoryAdminUsage();
+      await sql.end();
+      process.exit(1);
+    }
+
+    if (subcommand === "project-doc-review") {
+      const action = args[1] ?? "list";
+      const {
+        applyProjectDocReviewDecisions,
+        listProjectDocReviews,
+        renderProjectDocReviewPacket,
+      } = await import("./memory/project-doc-review");
+
+      if (action === "list" || action === "export") {
+        const limit = Number(getFlag("limit") ?? (action === "export" ? "200" : "50"));
+        const rows = await listProjectDocReviews(sql, {
+          status: getFlag("status") ?? "pending",
+          limit: Number.isFinite(limit) ? limit : action === "export" ? 200 : 50,
+        });
+        console.log(hasFlag("json") ? JSON.stringify(rows, null, 2) : renderProjectDocReviewPacket(rows));
+        await sql.end();
+        return;
+      }
+
+      if (action === "apply-decisions") {
+        const decisions = getFlag("decisions");
+        if (!decisions) {
+          console.error("Usage: braincore memory project-doc-review apply-decisions --decisions <path> [--actor <name>]");
+          await sql.end();
+          process.exit(1);
+        }
+        const result = await applyProjectDocReviewDecisions(sql, decisions, {
+          actor: getFlag("actor") ?? "braincore-cli",
+        });
+        console.log(JSON.stringify(result, null, 2));
+        await sql.end();
+        return;
+      }
+
+      console.error(`Unknown project-doc-review action: ${action}`);
+      printMemoryAdminUsage();
+      await sql.end();
+      process.exit(1);
+    }
 
     if (subcommand === "status-set" || subcommand === "feedback-record") {
       const targetKind = getFlag("target-kind");
@@ -2092,6 +2359,8 @@ async function loadSourceItems(
 
   const { loadExtraction } = await import("./extract/load");
   const { ensureSourceArtifact } = await import("./extract/source-loader");
+  const { queueProjectDocReview } = await import("./memory/project-doc-review");
+  const { queueAssistantMemoryReview } = await import("./memory/assistant-review");
   const { sql, testConnection } = await import("./db");
 
   console.log("\n[2/3] Loading into preserve schema...");
@@ -2116,6 +2385,11 @@ async function loadSourceItems(
         sql,
         item.sourceContent,
       );
+      if (item.sourceType === "project_doc") {
+        await queueProjectDocReview(sql, artifact.artifactId);
+      } else if (item.sourceType === "vestige_memory" || item.sourceType === "pai_auto_memory") {
+        await queueAssistantMemoryReview(sql, artifact.artifactId);
+      }
       factsCreated += result.factsCreated;
       segmentsCreated += result.segmentsCreated;
       if (result.warnings.length > 0) {
@@ -2221,6 +2495,42 @@ async function extractSession(sessionPath: string): Promise<void> {
 
   console.log("\n[3/3] Done.");
   await sql.end();
+}
+
+async function extractVestigeExport(path: string, dryRun?: boolean): Promise<void> {
+  const { parseVestigeExport } = await import("./extract/vestige-parser");
+  console.log("\n=== BrainCore Extract: Vestige Memory Export ===\n");
+  console.log("[1/3] Parsing Vestige JSON/JSONL export...");
+  const items = await parseVestigeExport(path);
+  if (items.length === 0) {
+    console.error("No Vestige memories found in export; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("Vestige memory", items, dryRun);
+}
+
+async function extractPaiAutoMemory(path: string, dryRun?: boolean): Promise<void> {
+  const { parsePaiAutoMemory } = await import("./extract/pai-auto-memory-parser");
+  console.log("\n=== BrainCore Extract: PAI Auto Memory ===\n");
+  console.log("[1/3] Parsing PAI auto-memory markdown files...");
+  const items = await parsePaiAutoMemory(path);
+  if (items.length === 0) {
+    console.error("No PAI auto-memory files found; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("PAI auto memory", items, dryRun);
+}
+
+async function extractProjectDocManifest(path: string, dryRun?: boolean): Promise<void> {
+  const { parseProjectDocManifest } = await import("./extract/project-doc-parser");
+  console.log("\n=== BrainCore Extract: Project Documentation ===\n");
+  console.log("[1/3] Parsing curated project documentation manifest...");
+  const items = await parseProjectDocManifest(path);
+  if (items.length === 0) {
+    console.error("No project documentation entries found; refusing zero-record import.");
+    process.exit(1);
+  }
+  await loadSourceItems("Project documentation", items, dryRun);
 }
 
 async function extractPersonalMemory(): Promise<void> {

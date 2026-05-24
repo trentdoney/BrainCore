@@ -41,7 +41,7 @@ BrainCore processes operational artifacts and automatically:
 All knowledge is stored in PostgreSQL with pgvector, enabling four core retrieval streams (SQL + full-text + vector + temporal) plus optional graph-path retrieval with Reciprocal Rank Fusion.
 
 <p align="center">
-  <img src="assets/lifecycle-control-flow.jpg" alt="BrainCore memory lifecycle control flow showing retrieve, inject, omit, feedback, and control outcomes while native evidence remains unchanged." width="100%" />
+  <img src="assets/lifecycle-control-flow.jpg" alt="BrainCore v1.2 memory lifecycle control flow from sources through extraction, review, approved memory, snapshot retrieval, prompt packaging, feedback, suppression, retirement, and append-only audit logs." width="100%" />
 </p>
 
 ## Quality Standard
@@ -66,7 +66,7 @@ software:
 
 ## Features
 
-- **Source ingestion**: incident notes plus deterministic parsers for Claude Code, Codex, Codex shared memory, Discord, Telegram, Grafana, personal memory, Asana task exports, and Git commits
+- **Source ingestion**: incident notes plus deterministic parsers for Claude Code, Codex, Codex shared memory, Discord, Telegram, Grafana, personal memory, assistant memory exports, Asana task exports, Git commits, and curated project documentation
 - **Hybrid retrieval**: Structured SQL + FTS + vector similarity + temporal expansion, with optional graph path search, fused with RRF (`k=60`)
 - **Trust classes**: `deterministic`, `corroborated_llm`, `single_source_llm`, `human_curated`
 - **Enterprise memory lifecycle overlay**: Suppress or retire recall targets without destroying native evidence, with append-only feedback, score, and audit trails
@@ -313,7 +313,7 @@ data sources
 ```
 
 <p align="center">
-  <img src="assets/architecture.jpg" alt="BrainCore architecture diagram showing sources, archive, extract, consolidate, retrieve, publish, hybrid retrieval, and evidence audit guarantees." width="100%" />
+  <img src="assets/architecture.jpg" alt="BrainCore v1.2 architecture diagram showing source ingestion, archive, extract, load, review, governed memories, snapshot builder, MCP and CLI retrieval, storage indexes, audit lineage, and schema management." width="100%" />
 </p>
 
 ### Trust classes
@@ -457,9 +457,9 @@ The response includes:
 That makes it possible to debug retrieval behavior without guessing
 which stream contributed the hit.
 
-## The 9 Data Sources
+## The 12 Data Sources
 
-BrainCore currently ships `9 deterministic parsers`.
+BrainCore currently ships `12 deterministic source parsers`.
 
 | Parser | Input | Typical output |
 |---|---|---|
@@ -472,6 +472,9 @@ BrainCore currently ships `9 deterministic parsers`.
 | `personal-memory-parser.ts` | personal memory markdown | curated memory and reference facts |
 | `asana-parser.ts` | Asana task export JSON/JSONL | task state, routing, project, and custom-field facts |
 | `git-parser.ts` | git commit JSON/JSONL or local repository | commit timeline, author, and touched-file facts |
+| `pai-auto-memory-parser.ts` | PAI auto-memory markdown | imported assistant-memory facts for review-gated promotion |
+| `vestige-parser.ts` | Vestige JSON/JSONL export | imported assistant-memory facts for review-gated promotion |
+| `project-doc-parser.ts` | curated project documentation manifest | explicit project facts gated by value review |
 
 The repo also contains extractor infrastructure files such as
 `deterministic.ts`, `semantic.ts`, `quality-gate.ts`,

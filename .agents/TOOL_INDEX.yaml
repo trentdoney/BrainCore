@@ -47,6 +47,9 @@ tools:
   - name: memory-working-cleanup-expired
     description: mark expired unpromoted working-memory items as expired
     source: examples/mcp_server/server.py
+  - name: braincore-snapshot
+    description: build an audited BrainCore memory snapshot through the CLI-backed reference server
+    source: examples/mcp_server/server.py
   - name: memory-search-visual
     description: search OCR, caption, and layout metadata without exposing raw artifacts
     source: examples/mcp_server/server.py

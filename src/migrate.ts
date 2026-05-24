@@ -27,6 +27,8 @@ export const MIGRATION_FILES = [
   "020_embedding_index_roles.sql",
   "021_enterprise_lifecycle.sql",
   "022_memory_governance.sql",
+  "023_assistant_memory_sources.sql",
+  "024_project_doc_sources.sql",
 ] as const;
 
 type Step =
@@ -453,6 +455,29 @@ export function markerSqlForMigration(label: string): string | null {
           AND (SELECT count(*) FROM present_columns) = (SELECT count(*) FROM required_columns)
           AND (SELECT count(*) FROM present_tables) = (SELECT count(*) FROM required_tables)
           AND (SELECT count(*) FROM present_indexes) = (SELECT count(*) FROM required_indexes) AS applied
+      `;
+    case "023_assistant_memory_sources.sql":
+      return `
+        SELECT count(*) = 2 AS applied
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'preserve'
+          AND t.typname = 'source_type'
+          AND e.enumlabel IN (
+            'vestige_memory',
+            'pai_auto_memory'
+          )
+      `;
+    case "024_project_doc_sources.sql":
+      return `
+        SELECT count(*) = 1 AS applied
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'preserve'
+          AND t.typname = 'source_type'
+          AND e.enumlabel = 'project_doc'
       `;
     default:
       return null;
